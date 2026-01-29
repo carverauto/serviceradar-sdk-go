@@ -111,6 +111,7 @@ const (
 	ocsfVersion                = "1.7.0"
 )
 
+//nolint:gochecknoglobals
 var eventCounter uint64
 
 // NewResult returns a result with defaults.
