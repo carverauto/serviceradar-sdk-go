@@ -47,25 +47,17 @@ func run_check() {
         }
 
         latency := float64(resp.Duration.Milliseconds())
+        thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
         return sdk.NewResult().
             WithSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latency)).
-            WithThresholds(latency, floatPtr(cfg.WarnMS), floatPtr(cfg.CritMS)).
-            WithMetric("latency_ms", latency, "ms", &sdk.Thresholds{
-                Warn: floatPtr(cfg.WarnMS),
-                Crit: floatPtr(cfg.CritMS),
-            }).
+            WithThresholds(latency, thresholds.Warn, thresholds.Crit).
+            WithMetric("latency_ms", latency, "ms", thresholds).
             WithStatCard("Latency", fmt.Sprintf("%.0fms", latency), "success"), nil
     })
 }
 
 func main() {}
 
-func floatPtr(v float64) *float64 {
-    if v <= 0 {
-        return nil
-    }
-    return &v
-}
 ```
 
 ## Examples
@@ -109,6 +101,15 @@ return sdk.NewResult().
     WithSummary("all good").
     WithMetric("cpu", 10, "%", nil).
     WithLabel("version", "1.2.3"), nil
+```
+
+### Threshold helpers
+Use `ThresholdSpec` for warning/critical thresholds and `Thresholds(warn, crit)` to build one without helper functions:
+
+```go
+thresholds := sdk.Thresholds(50, 100)
+res.WithMetric("latency_ms", 10, "ms", thresholds)
+res.WithThresholds(10, thresholds.Warn, thresholds.Crit)
 ```
 
 ### Context-aware I/O
