@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -14,8 +15,20 @@ type TCPConn struct {
 
 // TCPDial opens a TCP connection via the host proxy.
 func TCPDial(host string, port uint16, timeout time.Duration) (*TCPConn, error) {
+	return TCPDialContext(context.Background(), host, port, timeout)
+}
+
+// TCPDialContext opens a TCP connection via the host proxy with a context.
+func TCPDialContext(ctx context.Context, host string, port uint16, timeout time.Duration) (*TCPConn, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+
 	addr := []byte(host)
 	res := hostTCPConnect(ptrFromBytes(addr), uint32(len(addr)), uint32(port), uint32(timeout.Milliseconds()))
+
 	if res < 0 {
 		return nil, hostErr(res, "tcp_connect")
 	}
@@ -24,31 +37,57 @@ func TCPDial(host string, port uint16, timeout time.Duration) (*TCPConn, error) 
 
 // Read reads from the host connection into buf.
 func (c *TCPConn) Read(buf []byte, timeout time.Duration) (int, error) {
+	return c.ReadContext(context.Background(), buf, timeout)
+}
+
+// ReadContext reads from the host connection into buf with a context.
+func (c *TCPConn) ReadContext(ctx context.Context, buf []byte, timeout time.Duration) (int, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+	}
+
 	if c == nil || c.handle == 0 {
 		return 0, errTCPConnNotInitialized
 	}
 	if len(buf) == 0 {
 		return 0, nil
 	}
+
 	res := hostTCPRead(c.handle, ptrFromBytes(buf), uint32(len(buf)), uint32(timeout.Milliseconds()))
 	if res < 0 {
 		return 0, hostErr(res, "tcp_read")
 	}
+
 	return int(res), nil
 }
 
 // Write writes data to the host connection.
 func (c *TCPConn) Write(data []byte, timeout time.Duration) (int, error) {
+	return c.WriteContext(context.Background(), data, timeout)
+}
+
+// WriteContext writes data to the host connection with a context.
+func (c *TCPConn) WriteContext(ctx context.Context, data []byte, timeout time.Duration) (int, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+	}
+
 	if c == nil || c.handle == 0 {
 		return 0, errTCPConnNotInitialized
 	}
 	if len(data) == 0 {
 		return 0, nil
 	}
+
 	res := hostTCPWrite(c.handle, ptrFromBytes(data), uint32(len(data)), uint32(timeout.Milliseconds()))
 	if res < 0 {
 		return 0, hostErr(res, "tcp_write")
 	}
+
 	return int(res), nil
 }
 
@@ -58,6 +97,8 @@ func (c *TCPConn) Close() error {
 		return nil
 	}
 	res := hostTCPClose(c.handle)
+
 	c.handle = 0
+
 	return hostErr(res, "tcp_close")
 }
