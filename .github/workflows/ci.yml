@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Go test
+        run: go test ./...
+
+  tinygo-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: acifani/setup-tinygo@v2
+        with:
+          tinygo-version: "0.32.0"
+      - name: Build http-check
+        run: |
+          cd examples/http-check
+          tinygo build -o plugin.wasm -target=wasi ./
+      - name: Build tcp-check
+        run: |
+          cd examples/tcp-check
+          tinygo build -o plugin.wasm -target=wasi ./
+      - name: Build udp-check
+        run: |
+          cd examples/udp-check
+          tinygo build -o plugin.wasm -target=wasi ./
+      - name: Build widgets-check
+        run: |
+          cd examples/widgets-check
+          tinygo build -o plugin.wasm -target=wasi ./
