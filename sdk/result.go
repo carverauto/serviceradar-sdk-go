@@ -115,39 +115,43 @@ const (
 var eventCounter uint64
 
 // NewResult returns a result with defaults.
-func NewResult() Result {
-	return Result{SchemaVersion: 1, Status: StatusUnknown}
+func NewResult() *Result {
+	return &Result{SchemaVersion: 1, Status: StatusUnknown}
 }
 
 // Ok returns an OK result with the provided summary.
-func Ok(summary string) Result {
+func Ok(summary string) *Result {
 	res := NewResult()
 	res.Status = StatusOK
 	res.Summary = summary
+
 	return res
 }
 
 // Warning returns a WARNING result with the provided summary.
-func Warning(summary string) Result {
+func Warning(summary string) *Result {
 	res := NewResult()
 	res.Status = StatusWarning
 	res.Summary = summary
+
 	return res
 }
 
 // Critical returns a CRITICAL result with the provided summary.
-func Critical(summary string) Result {
+func Critical(summary string) *Result {
 	res := NewResult()
 	res.Status = StatusCritical
 	res.Summary = summary
+
 	return res
 }
 
 // Unknown returns an UNKNOWN result with the provided summary.
-func Unknown(summary string) Result {
+func Unknown(summary string) *Result {
 	res := NewResult()
 	res.Status = StatusUnknown
 	res.Summary = summary
+
 	return res
 }
 
@@ -157,29 +161,73 @@ func (r *Result) SetDetails(details string)    { r.Details = details }
 func (r *Result) SetPerfdata(perfdata string)  { r.Perfdata = perfdata }
 func (r *Result) SetSchemaVersion(version int) { r.SchemaVersion = version }
 
+func (r *Result) WithStatus(status Status) *Result {
+	r.SetStatus(status)
+	return r
+}
+
+func (r *Result) WithSummary(summary string) *Result {
+	r.SetSummary(summary)
+	return r
+}
+
+func (r *Result) WithDetails(details string) *Result {
+	r.SetDetails(details)
+	return r
+}
+
+func (r *Result) WithPerfdata(perfdata string) *Result {
+	r.SetPerfdata(perfdata)
+	return r
+}
+
+func (r *Result) WithSchemaVersion(version int) *Result {
+	r.SetSchemaVersion(version)
+	return r
+}
+
 func (r *Result) SetObservedAt(t time.Time) {
 	r.ObservedAt = t.UTC().Format(time.RFC3339Nano)
+}
+
+func (r *Result) WithObservedAt(t time.Time) *Result {
+	r.SetObservedAt(t)
+	return r
 }
 
 func (r *Result) AddLabel(key, value string) {
 	if key == "" {
 		return
 	}
+
 	if r.Labels == nil {
 		r.Labels = make(map[string]string)
 	}
+
 	r.Labels[key] = value
+}
+
+func (r *Result) WithLabel(key, value string) *Result {
+	r.AddLabel(key, value)
+	return r
 }
 
 func (r *Result) AddMetric(name string, value float64, unit string, thresholds *Thresholds) {
 	metric := Metric{Name: name, Value: value, Unit: unit}
+
 	if thresholds != nil {
 		metric.Warn = thresholds.Warn
 		metric.Crit = thresholds.Crit
 		metric.Min = thresholds.Min
 		metric.Max = thresholds.Max
 	}
+
 	r.Metrics = append(r.Metrics, metric)
+}
+
+func (r *Result) WithMetric(name string, value float64, unit string, thresholds *Thresholds) *Result {
+	r.AddMetric(name, value, unit, thresholds)
+	return r
 }
 
 func (r *Result) AddStatCard(label, value, tone string) {
@@ -191,14 +239,21 @@ func (r *Result) AddStatCard(label, value, tone string) {
 	})
 }
 
+func (r *Result) WithStatCard(label, value, tone string) *Result {
+	r.AddStatCard(label, value, tone)
+	return r
+}
+
 func (r *Result) AddTable(data map[string]string, layout string) {
 	if data == nil {
 		return
 	}
+
 	mapped := make(map[string]any, len(data))
 	for key, value := range data {
 		mapped[key] = value
 	}
+
 	r.Display = append(r.Display, DisplayWidget{
 		Widget: "table",
 		Layout: layout,
@@ -206,10 +261,16 @@ func (r *Result) AddTable(data map[string]string, layout string) {
 	})
 }
 
+func (r *Result) WithTable(data map[string]string, layout string) *Result {
+	r.AddTable(data, layout)
+	return r
+}
+
 func (r *Result) AddSparkline(label string, points []float64, tone string) {
 	if len(points) == 0 {
 		return
 	}
+
 	r.Display = append(r.Display, DisplayWidget{
 		Widget: "sparkline",
 		Label:  label,
@@ -220,10 +281,16 @@ func (r *Result) AddSparkline(label string, points []float64, tone string) {
 	})
 }
 
+func (r *Result) WithSparkline(label string, points []float64, tone string) *Result {
+	r.AddSparkline(label, points, tone)
+	return r
+}
+
 func (r *Result) AddMarkdown(markdown string) {
 	if markdown == "" {
 		return
 	}
+
 	r.Display = append(r.Display, DisplayWidget{
 		Widget: "markdown",
 		Data: map[string]any{
@@ -232,18 +299,31 @@ func (r *Result) AddMarkdown(markdown string) {
 	})
 }
 
+func (r *Result) WithMarkdown(markdown string) *Result {
+	r.AddMarkdown(markdown)
+	return r
+}
+
 func (r *Result) EmitEvent(severity Severity, summary, key string) {
 	if summary == "" {
 		return
 	}
+
 	event := NewOCSFEventLogActivity(summary, severity)
 	if key != "" {
 		if event.Unmapped == nil {
 			event.Unmapped = make(map[string]any)
 		}
+
 		event.Unmapped["condition_key"] = key
 	}
+
 	r.Events = append(r.Events, event)
+}
+
+func (r *Result) WithEvent(severity Severity, summary, key string) *Result {
+	r.EmitEvent(severity, summary, key)
+	return r
 }
 
 // AddOCSFEvent appends a pre-built OCSF event to the result payload.
@@ -251,10 +331,17 @@ func (r *Result) AddOCSFEvent(event OCSFEvent) {
 	if event.ID == "" {
 		event.ID = generateEventID()
 	}
+
 	if event.Time.IsZero() {
 		event.Time = time.Now().UTC()
 	}
+
 	r.Events = append(r.Events, event)
+}
+
+func (r *Result) WithOCSFEvent(event OCSFEvent) *Result {
+	r.AddOCSFEvent(event)
+	return r
 }
 
 // NewOCSFEventLogActivity creates a minimal OCSF Event Log Activity entry.
@@ -315,6 +402,11 @@ func (r *Result) RequestImmediateAlert(conditionID string) {
 	r.ConditionID = conditionID
 }
 
+func (r *Result) WithImmediateAlert(conditionID string) *Result {
+	r.RequestImmediateAlert(conditionID)
+	return r
+}
+
 // ApplyThresholds compares a value against warning/critical thresholds and updates status.
 func (r *Result) ApplyThresholds(value float64, warn, crit *float64) {
 	switch {
@@ -327,10 +419,43 @@ func (r *Result) ApplyThresholds(value float64, warn, crit *float64) {
 	}
 }
 
-// Serialize returns the JSON payload for the result.
-func (r Result) Serialize() ([]byte, error) {
+func (r *Result) WithThresholds(value float64, warn, crit *float64) *Result {
+	r.ApplyThresholds(value, warn, crit)
+	return r
+}
+
+func applyResultDefaults(r *Result, now time.Time) {
 	if r.SchemaVersion == 0 {
 		r.SchemaVersion = 1
 	}
-	return json.Marshal(r)
+
+	if r.Status == "" {
+		r.Status = StatusUnknown
+	}
+
+	if r.Summary == "" {
+		r.Summary = string(r.Status)
+	}
+
+	if r.ObservedAt == "" {
+		r.SetObservedAt(now)
+	}
+}
+
+func (r *Result) finalize() {
+	applyResultDefaults(r, time.Now().UTC())
+}
+
+// Serialize returns the JSON payload for the result.
+func (r *Result) Serialize() ([]byte, error) {
+	now := time.Now().UTC()
+
+	payload := Result{}
+	if r != nil {
+		payload = *r
+	}
+
+	applyResultDefaults(&payload, now)
+
+	return json.Marshal(payload)
 }

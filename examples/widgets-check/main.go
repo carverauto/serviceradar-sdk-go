@@ -22,7 +22,7 @@ type httpBody struct {
 
 //export run_check
 func run_check() {
-	sdk.Execute(func() sdk.Result {
+	_ = sdk.Execute(func() (*sdk.Result, error) {
 		cfg := Config{URL: "https://example.com/health"}
 		_ = sdk.GetConfig(&cfg)
 
@@ -31,10 +31,12 @@ func run_check() {
 			res := sdk.Critical("http request failed")
 			res.EmitEvent(sdk.SeverityCritical, "http request failed", "http_request_failed")
 			res.RequestImmediateAlert("http_request_failed")
-			return res
+
+			return res, nil
 		}
 
 		latencyMS := float64(resp.Duration.Milliseconds())
+
 		res := sdk.NewResult()
 		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
 		res.ApplyThresholds(latencyMS, floatPtr(cfg.WarnMS), floatPtr(cfg.CritMS))
@@ -50,6 +52,7 @@ func run_check() {
 			"Status": fmt.Sprintf("%d", resp.Status),
 			"URL":    cfg.URL,
 		}
+
 		res.AddTable(table, "full")
 
 		res.AddSparkline("Latency (ms)", sparklineSeries(latencyMS), toneForStatus(res.Status))
@@ -61,12 +64,13 @@ func run_check() {
 		// Optional: parse body status if JSON is returned.
 		if len(resp.Body) > 0 && strings.Contains(strings.ToLower(resp.Headers["content-type"]), "application/json") {
 			var body httpBody
+
 			if err := json.Unmarshal(resp.Body, &body); err == nil && body.Status != "" {
 				res.AddLabel("body_status", body.Status)
 			}
 		}
 
-		return res
+		return res, nil
 	})
 }
 
@@ -96,12 +100,16 @@ func toneForStatus(status sdk.Status) string {
 
 func sparklineSeries(latency float64) []float64 {
 	seed := latency
+
 	if seed <= 0 {
 		seed = 10
 	}
+
 	series := make([]float64, 8)
+
 	for i := range series {
 		series[i] = seed + float64((i-3))*2
 	}
+
 	return series
 }

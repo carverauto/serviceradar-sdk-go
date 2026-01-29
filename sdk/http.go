@@ -1,8 +1,10 @@
 package sdk
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -53,15 +55,27 @@ type HTTPClient struct {
 
 // Do performs an HTTP request via the host proxy.
 func (c *HTTPClient) Do(req HTTPRequest) (*HTTPResponse, error) {
+	return c.DoContext(context.Background(), req)
+}
+
+// DoContext performs an HTTP request via the host proxy with a context.
+func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPResponse, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
 	payload := httpRequestPayload{
 		Method:    strings.ToUpper(strings.TrimSpace(req.Method)),
 		URL:       req.URL,
 		Headers:   req.Headers,
 		TimeoutMS: req.TimeoutMS,
 	}
+
 	if payload.Method == "" {
-		payload.Method = "GET"
+		payload.Method = http.MethodGet
 	}
+
 	if len(req.Body) > 0 {
 		if req.BodyBase64 {
 			payload.BodyBase64 = base64.StdEncoding.EncodeToString(req.Body)
@@ -79,9 +93,11 @@ func (c *HTTPClient) Do(req HTTPRequest) (*HTTPResponse, error) {
 	if respBufSize == 0 {
 		respBufSize = MaxHTTPResponseBytes
 	}
+
 	respBuf := make([]byte, respBufSize)
 	start := time.Now()
 	res := hostHTTPRequest(ptrFromBytes(encoded), uint32(len(encoded)), ptrFromBytes(respBuf), uint32(len(respBuf)))
+
 	if err := hostErr(res, "http_request"); err != nil {
 		return nil, err
 	}
@@ -93,16 +109,19 @@ func (c *HTTPClient) Do(req HTTPRequest) (*HTTPResponse, error) {
 	}
 
 	var responsePayload httpResponsePayload
+
 	if err := json.Unmarshal(respBuf[:res], &responsePayload); err != nil {
 		return nil, err
 	}
 
-	body := []byte{}
+	var body []byte
+
 	if responsePayload.BodyBase64 != "" {
 		decoded, err := base64.StdEncoding.DecodeString(responsePayload.BodyBase64)
 		if err != nil {
 			return nil, err
 		}
+
 		body = decoded
 	}
 
@@ -116,7 +135,12 @@ func (c *HTTPClient) Do(req HTTPRequest) (*HTTPResponse, error) {
 
 // Get performs a GET request.
 func (c *HTTPClient) Get(url string) (*HTTPResponse, error) {
-	return c.Do(HTTPRequest{Method: "GET", URL: url})
+	return c.DoContext(context.Background(), HTTPRequest{Method: http.MethodGet, URL: url})
+}
+
+// GetContext performs a GET request with a context.
+func (c *HTTPClient) GetContext(ctx context.Context, url string) (*HTTPResponse, error) {
+	return c.DoContext(ctx, HTTPRequest{Method: http.MethodGet, URL: url})
 }
 
 // Post performs a POST request with the provided body.
@@ -125,5 +149,16 @@ func (c *HTTPClient) Post(url string, body []byte, contentType string) (*HTTPRes
 	if contentType != "" {
 		headers["content-type"] = contentType
 	}
-	return c.Do(HTTPRequest{Method: "POST", URL: url, Headers: headers, Body: body})
+
+	return c.DoContext(context.Background(), HTTPRequest{Method: http.MethodPost, URL: url, Headers: headers, Body: body})
+}
+
+// PostContext performs a POST request with a context and provided body.
+func (c *HTTPClient) PostContext(ctx context.Context, url string, body []byte, contentType string) (*HTTPResponse, error) {
+	headers := map[string]string{}
+	if contentType != "" {
+		headers["content-type"] = contentType
+	}
+
+	return c.DoContext(ctx, HTTPRequest{Method: http.MethodPost, URL: url, Headers: headers, Body: body})
 }
