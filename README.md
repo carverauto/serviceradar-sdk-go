@@ -37,6 +37,7 @@ type Config struct {
 func run_check() {
     _ = sdk.Execute(func() (*sdk.Result, error) {
         var cfg Config
+
         if err := sdk.LoadConfig(&cfg); err != nil {
             return nil, err
         }
@@ -48,6 +49,7 @@ func run_check() {
 
         latency := float64(resp.Duration.Milliseconds())
         thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
+
         return sdk.NewResult().
             WithSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latency)).
             WithThresholds(latency, thresholds.Warn, thresholds.Crit).
