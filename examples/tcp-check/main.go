@@ -19,18 +19,21 @@ type Config struct {
 
 //export run_check
 func run_check() {
-	sdk.Execute(func() sdk.Result {
+	_ = sdk.Execute(func() (*sdk.Result, error) {
 		cfg := Config{Host: "example.com", Port: 80, TimeoutMS: 2000}
 		_ = sdk.GetConfig(&cfg)
 
 		timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
+
 		conn, err := sdk.TCPDial(cfg.Host, uint16(cfg.Port), timeout)
 		if err != nil {
 			res := sdk.Critical("tcp connect failed")
 			res.EmitEvent(sdk.SeverityCritical, "tcp connect failed", "tcp_connect_failed")
 			res.RequestImmediateAlert("tcp_connect_failed")
-			return res
+
+			return res, nil
 		}
+
 		defer func() {
 			_ = conn.Close()
 		}()
@@ -40,21 +43,25 @@ func run_check() {
 			if err != nil {
 				res := sdk.Warning("tcp write failed")
 				res.EmitEvent(sdk.SeverityWarning, "tcp write failed", "tcp_write_failed")
-				return res
+
+				return res, nil
 			}
 		}
 
 		buf := make([]byte, max(1, cfg.ExpectBytes))
+
 		n, err := conn.Read(buf, timeout)
 		if err != nil {
 			res := sdk.Warning("tcp read failed")
 			res.EmitEvent(sdk.SeverityWarning, "tcp read failed", "tcp_read_failed")
-			return res
+
+			return res, nil
 		}
 
 		res := sdk.Ok(fmt.Sprintf("tcp ok (%d bytes)", n))
 		res.AddMetric("bytes_read", float64(n), "bytes", nil)
-		return res
+	
+		return res, nil
 	})
 }
 

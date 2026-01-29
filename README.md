@@ -22,6 +22,7 @@ go get github.com/carverauto/serviceradar-sdk-go
 package main
 
 import (
+    "context"
     "fmt"
     "github.com/carverauto/serviceradar-sdk-go/sdk"
 )
@@ -34,28 +35,26 @@ type Config struct {
 
 //export run_check
 func run_check() {
-    sdk.Execute(func() sdk.Result {
+    _ = sdk.Execute(func() (*sdk.Result, error) {
         var cfg Config
-        _ = sdk.GetConfig(&cfg)
+        if err := sdk.LoadConfig(&cfg); err != nil {
+            return nil, err
+        }
 
-        resp, err := sdk.HTTP.Get(cfg.URL)
+        resp, err := sdk.HTTP.GetContext(context.Background(), cfg.URL)
         if err != nil {
-            res := sdk.Critical("request failed")
-            res.EmitEvent(sdk.SeverityCritical, "request failed", "http_error")
-            res.RequestImmediateAlert("http_error")
-            return res
+            return nil, fmt.Errorf("http request failed: %w", err)
         }
 
         latency := float64(resp.Duration.Milliseconds())
-        res := sdk.NewResult()
-        res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latency))
-        res.ApplyThresholds(latency, floatPtr(cfg.WarnMS), floatPtr(cfg.CritMS))
-        res.AddMetric("latency_ms", latency, "ms", &sdk.Thresholds{
-            Warn: floatPtr(cfg.WarnMS),
-            Crit: floatPtr(cfg.CritMS),
-        })
-        res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latency), "success")
-        return res
+        return sdk.NewResult().
+            WithSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latency)).
+            WithThresholds(latency, floatPtr(cfg.WarnMS), floatPtr(cfg.CritMS)).
+            WithMetric("latency_ms", latency, "ms", &sdk.Thresholds{
+                Warn: floatPtr(cfg.WarnMS),
+                Crit: floatPtr(cfg.CritMS),
+            }).
+            WithStatCard("Latency", fmt.Sprintf("%.0fms", latency), "success"), nil
     })
 }
 
@@ -75,6 +74,59 @@ func floatPtr(v float64) *float64 {
 - `examples/tcp-check`: TCP connectivity check with optional write/read
 - `examples/udp-check`: UDP send check with bytes-sent metric
 - `examples/widgets-check`: HTTP check demonstrating stat card, table, sparkline, and markdown widgets
+
+## API ergonomics
+
+### Execute and error handling
+`Execute` accepts a function that returns `(*Result, error)` and itself returns an `error`:
+
+```go
+err := sdk.Execute(func() (*sdk.Result, error) {
+    // ...
+    return sdk.Ok("ok"), nil
+})
+if err != nil {
+    // Optional: handle submit/serialize errors (logging is already done by the SDK)
+}
+```
+
+If your function returns a non-nil error, the SDK auto-generates a critical result (or upgrades your result to critical) and records the error details in the payload. This keeps the happy path concise while still surfacing failures.
+
+### Defaults and zero-value behavior
+Defaults are applied at the edge (right before serialization) so `Serialize` does not mutate the original object:
+- `SchemaVersion` defaults to `1`
+- `Status` defaults to `UNKNOWN`
+- `Summary` defaults to the status string
+- `ObservedAt` defaults to “now” in RFC3339Nano
+
+This means `var r sdk.Result` is safe; serialization produces a valid payload without altering `r`.
+
+### Fluent builders
+Result has both conventional setters (`SetSummary`, `AddMetric`, etc.) and fluent builders (`WithSummary`, `WithMetric`, etc.) so you can choose style:
+
+```go
+return sdk.NewResult().
+    WithSummary("all good").
+    WithMetric("cpu", 10, "%", nil).
+    WithLabel("version", "1.2.3"), nil
+```
+
+### Context-aware I/O
+Context variants exist for host I/O to match Go expectations:
+- HTTP: `HTTP.DoContext`, `HTTP.GetContext`, `HTTP.PostContext`
+- TCP: `TCPDialContext`, `(*TCPConn).ReadContext`, `(*TCPConn).WriteContext`
+- UDP: `UDPSendToContext`
+
+These currently check `ctx.Err()` before the host call (TinyGo/Wasm is synchronous), but give you a stable API if cancellation support is added later.
+
+### Config loading
+`LoadConfig` is an alias of `GetConfig` for more idiomatic naming in user code:
+
+```go
+if err := sdk.LoadConfig(&cfg); err != nil {
+    return nil, err
+}
+```
 
 ## Build
 
