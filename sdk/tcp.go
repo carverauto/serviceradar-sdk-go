@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+var errTCPConnNotInitialized = errors.New("tcp connection not initialized")
+
 // TCPConn wraps a host TCP connection handle.
 type TCPConn struct {
 	handle uint32
@@ -23,7 +25,7 @@ func TCPDial(host string, port uint16, timeout time.Duration) (*TCPConn, error) 
 // Read reads from the host connection into buf.
 func (c *TCPConn) Read(buf []byte, timeout time.Duration) (int, error) {
 	if c == nil || c.handle == 0 {
-		return 0, errors.New("tcp connection not initialized")
+		return 0, errTCPConnNotInitialized
 	}
 	if len(buf) == 0 {
 		return 0, nil
@@ -38,7 +40,7 @@ func (c *TCPConn) Read(buf []byte, timeout time.Duration) (int, error) {
 // Write writes data to the host connection.
 func (c *TCPConn) Write(data []byte, timeout time.Duration) (int, error) {
 	if c == nil || c.handle == 0 {
-		return 0, errors.New("tcp connection not initialized")
+		return 0, errTCPConnNotInitialized
 	}
 	if len(data) == 0 {
 		return 0, nil

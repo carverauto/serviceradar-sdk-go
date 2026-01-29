@@ -4,6 +4,8 @@ package sdk
 type Logger struct{}
 
 // Log is the default logger instance.
+//
+//nolint:gochecknoglobals
 var Log Logger
 
 func (Logger) Debug(msg string) { logWithLevel(0, msg) }

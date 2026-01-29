@@ -42,6 +42,8 @@ type httpResponsePayload struct {
 }
 
 // HTTP provides helper methods for host-proxied HTTP requests.
+//
+//nolint:gochecknoglobals
 var HTTP = &HTTPClient{MaxResponseBytes: MaxHTTPResponseBytes}
 
 // HTTPClient wraps host HTTP request calls.

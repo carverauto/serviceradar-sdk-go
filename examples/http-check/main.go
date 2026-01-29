@@ -1,3 +1,5 @@
+//go:build tinygo
+
 package main
 
 import (
@@ -49,10 +51,14 @@ func floatPtr(v float64) *float64 {
 
 func toneForStatus(status sdk.Status) string {
 	switch status {
+	case sdk.StatusOK:
+		return "success"
 	case sdk.StatusCritical:
 		return "critical"
 	case sdk.StatusWarning:
 		return "warning"
+	case sdk.StatusUnknown:
+		return "neutral"
 	default:
 		return "success"
 	}
