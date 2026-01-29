@@ -21,7 +21,7 @@ type Config struct {
 func run_check() {
 	_ = sdk.Execute(func() (*sdk.Result, error) {
 		cfg := Config{Host: "example.com", Port: 80, TimeoutMS: 2000}
-		_ = sdk.GetConfig(&cfg)
+		_ = sdk.LoadConfig(&cfg)
 
 		timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
 
@@ -60,7 +60,7 @@ func run_check() {
 
 		res := sdk.Ok(fmt.Sprintf("tcp ok (%d bytes)", n))
 		res.AddMetric("bytes_read", float64(n), "bytes", nil)
-	
+
 		return res, nil
 	})
 }

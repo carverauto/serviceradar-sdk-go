@@ -12,7 +12,7 @@ func TestSerializeIncludesMetrics(t *testing.T) {
 	res := NewResult()
 	res.SetStatus(StatusWarning)
 	res.SetSummary("latency high")
-	res.AddMetric("latency_ms", 75, "ms", &Thresholds{Warn: &warn, Crit: &crit})
+	res.AddMetric("latency_ms", 75, "ms", &ThresholdSpec{Warn: &warn, Crit: &crit})
 	res.AddStatCard("Latency", "75ms", "warning")
 	res.EmitEvent(SeverityWarning, "latency high", "latency_threshold")
 	res.RequestImmediateAlert("latency_threshold")

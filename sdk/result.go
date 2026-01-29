@@ -54,12 +54,24 @@ type Metric struct {
 	Max   *float64 `json:"max,omitempty"`
 }
 
-// Thresholds define warning/critical thresholds and bounds.
-type Thresholds struct {
+// ThresholdSpec defines warning/critical thresholds and bounds.
+type ThresholdSpec struct {
 	Warn *float64
 	Crit *float64
 	Min  *float64
 	Max  *float64
+}
+
+// Thresholds returns a ThresholdSpec pointer with warn/crit set when > 0.
+func Thresholds(warn, crit float64) *ThresholdSpec {
+	t := &ThresholdSpec{}
+	if warn > 0 {
+		t.Warn = &warn
+	}
+	if crit > 0 {
+		t.Crit = &crit
+	}
+	return t
 }
 
 // DisplayWidget describes UI rendering hints.
@@ -212,7 +224,7 @@ func (r *Result) WithLabel(key, value string) *Result {
 	return r
 }
 
-func (r *Result) AddMetric(name string, value float64, unit string, thresholds *Thresholds) {
+func (r *Result) AddMetric(name string, value float64, unit string, thresholds *ThresholdSpec) {
 	metric := Metric{Name: name, Value: value, Unit: unit}
 
 	if thresholds != nil {
@@ -225,7 +237,7 @@ func (r *Result) AddMetric(name string, value float64, unit string, thresholds *
 	r.Metrics = append(r.Metrics, metric)
 }
 
-func (r *Result) WithMetric(name string, value float64, unit string, thresholds *Thresholds) *Result {
+func (r *Result) WithMetric(name string, value float64, unit string, thresholds *ThresholdSpec) *Result {
 	r.AddMetric(name, value, unit, thresholds)
 	return r
 }

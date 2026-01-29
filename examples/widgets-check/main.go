@@ -24,7 +24,7 @@ type httpBody struct {
 func run_check() {
 	_ = sdk.Execute(func() (*sdk.Result, error) {
 		cfg := Config{URL: "https://example.com/health"}
-		_ = sdk.GetConfig(&cfg)
+		_ = sdk.LoadConfig(&cfg)
 
 		resp, err := sdk.HTTP.Get(cfg.URL)
 		if err != nil {
@@ -36,14 +36,12 @@ func run_check() {
 		}
 
 		latencyMS := float64(resp.Duration.Milliseconds())
+		thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
 
 		res := sdk.NewResult()
 		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
-		res.ApplyThresholds(latencyMS, floatPtr(cfg.WarnMS), floatPtr(cfg.CritMS))
-		res.AddMetric("latency_ms", latencyMS, "ms", &sdk.Thresholds{
-			Warn: floatPtr(cfg.WarnMS),
-			Crit: floatPtr(cfg.CritMS),
-		})
+		res.ApplyThresholds(latencyMS, thresholds.Warn, thresholds.Crit)
+		res.AddMetric("latency_ms", latencyMS, "ms", thresholds)
 
 		// Widgets
 		res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latencyMS), toneForStatus(res.Status))
@@ -75,13 +73,6 @@ func run_check() {
 }
 
 func main() {}
-
-func floatPtr(v float64) *float64 {
-	if v <= 0 {
-		return nil
-	}
-	return &v
-}
 
 func toneForStatus(status sdk.Status) string {
 	switch status {

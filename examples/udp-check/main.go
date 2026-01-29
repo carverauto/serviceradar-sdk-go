@@ -20,7 +20,7 @@ type Config struct {
 func run_check() {
 	_ = sdk.Execute(func() (*sdk.Result, error) {
 		cfg := Config{Host: "example.com", Port: 53, TimeoutMS: 1000, Payload: "ping"}
-		_ = sdk.GetConfig(&cfg)
+		_ = sdk.LoadConfig(&cfg)
 
 		timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
 		payload := []byte(cfg.Payload)
