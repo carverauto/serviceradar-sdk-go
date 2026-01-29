@@ -23,6 +23,7 @@ func (e HostError) Error() string {
 	if e.Op == "" {
 		return fmt.Sprintf("host error %d", e.Code)
 	}
+
 	return fmt.Sprintf("host error %d (%s)", e.Code, e.Op)
 }
 
@@ -30,5 +31,6 @@ func hostErr(code int32, op string) error {
 	if code >= 0 {
 		return nil
 	}
+
 	return HostError{Code: code, Op: op}
 }

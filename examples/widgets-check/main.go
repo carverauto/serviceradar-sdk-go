@@ -22,26 +22,26 @@ type httpBody struct {
 
 //export run_check
 func run_check() {
-	sdk.Execute(func() sdk.Result {
+	_ = sdk.Execute(func() (*sdk.Result, error) {
 		cfg := Config{URL: "https://example.com/health"}
-		_ = sdk.GetConfig(&cfg)
+		_ = sdk.LoadConfig(&cfg)
 
 		resp, err := sdk.HTTP.Get(cfg.URL)
 		if err != nil {
 			res := sdk.Critical("http request failed")
 			res.EmitEvent(sdk.SeverityCritical, "http request failed", "http_request_failed")
 			res.RequestImmediateAlert("http_request_failed")
-			return res
+
+			return res, nil
 		}
 
 		latencyMS := float64(resp.Duration.Milliseconds())
+		thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
+
 		res := sdk.NewResult()
 		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
-		res.ApplyThresholds(latencyMS, floatPtr(cfg.WarnMS), floatPtr(cfg.CritMS))
-		res.AddMetric("latency_ms", latencyMS, "ms", &sdk.Thresholds{
-			Warn: floatPtr(cfg.WarnMS),
-			Crit: floatPtr(cfg.CritMS),
-		})
+		res.ApplyThresholds(latencyMS, thresholds.Warn, thresholds.Crit)
+		res.AddMetric("latency_ms", latencyMS, "ms", thresholds)
 
 		// Widgets
 		res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latencyMS), toneForStatus(res.Status))
@@ -50,6 +50,7 @@ func run_check() {
 			"Status": fmt.Sprintf("%d", resp.Status),
 			"URL":    cfg.URL,
 		}
+
 		res.AddTable(table, "full")
 
 		res.AddSparkline("Latency (ms)", sparklineSeries(latencyMS), toneForStatus(res.Status))
@@ -61,23 +62,17 @@ func run_check() {
 		// Optional: parse body status if JSON is returned.
 		if len(resp.Body) > 0 && strings.Contains(strings.ToLower(resp.Headers["content-type"]), "application/json") {
 			var body httpBody
+
 			if err := json.Unmarshal(resp.Body, &body); err == nil && body.Status != "" {
 				res.AddLabel("body_status", body.Status)
 			}
 		}
 
-		return res
+		return res, nil
 	})
 }
 
 func main() {}
-
-func floatPtr(v float64) *float64 {
-	if v <= 0 {
-		return nil
-	}
-	return &v
-}
 
 func toneForStatus(status sdk.Status) string {
 	switch status {
@@ -96,12 +91,16 @@ func toneForStatus(status sdk.Status) string {
 
 func sparklineSeries(latency float64) []float64 {
 	seed := latency
+
 	if seed <= 0 {
 		seed = 10
 	}
+
 	series := make([]float64, 8)
+
 	for i := range series {
 		series[i] = seed + float64((i-3))*2
 	}
+
 	return series
 }
