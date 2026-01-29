@@ -1,6 +1,6 @@
 # serviceradar-sdk-go
 
-ServiceRadar plugin SDK for Go (TinyGo/Wasm).
+ServiceRadar plugin SDK for Go (TinyGo/WASM).
 
 ## Overview
 This SDK lets you write ServiceRadar plugin checkers in Go without handling low-level WASM host calls. It handles:
