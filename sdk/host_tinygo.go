@@ -28,3 +28,15 @@ func hostTCPClose(handle uint32) int32
 
 //go:wasmimport env udp_sendto
 func hostUDPSendTo(addrPtr uint32, addrLen uint32, port uint32, bufPtr uint32, bufLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_connect
+func hostWebSocketConnect(urlPtr uint32, urlLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_send
+func hostWebSocketSend(handle uint32, dataPtr uint32, dataLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_recv
+func hostWebSocketRecv(handle uint32, bufPtr uint32, bufLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_close
+func hostWebSocketClose(handle uint32) int32
