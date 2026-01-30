@@ -120,8 +120,43 @@ Context variants exist for host I/O to match Go expectations:
 - HTTP: `HTTP.DoContext`, `HTTP.GetContext`, `HTTP.PostContext`
 - TCP: `TCPDialContext`, `(*TCPConn).ReadContext`, `(*TCPConn).WriteContext`
 - UDP: `UDPSendToContext`
+- WebSocket: `WebSocketDialContext`, `(*WebSocketConn).ReadContext`, `(*WebSocketConn).WriteContext`
 
 These currently check `ctx.Err()` before the host call (TinyGo/Wasm is synchronous), but give you a stable API if cancellation support is added later.
+
+### WebSocket Support
+The SDK provides WebSocket client capabilities for plugins that need to communicate with WebSocket servers:
+
+```go
+// Dial a WebSocket endpoint
+conn, err := sdk.WebSocketDialContext(ctx, "ws://localhost:8080/ws")
+if err != nil {
+    return nil, fmt.Errorf("websocket dial failed: %w", err)
+}
+defer conn.Close()
+
+// Send a message
+if err := conn.WriteContext(ctx, []byte(`{"method": "getInfo"}`)); err != nil {
+    return nil, fmt.Errorf("websocket write failed: %w", err)
+}
+
+// Read response
+data, err := conn.ReadContext(ctx)
+if err != nil {
+    return nil, fmt.Errorf("websocket read failed: %w", err)
+}
+```
+
+WebSocket connections are mediated by the host runtime, which enforces:
+- **Domain allowlists**: Only permitted domains can be connected to
+- **Port restrictions**: Only allowed ports can be accessed
+- **Connection limits**: Maximum concurrent connections per plugin
+
+The plugin must have the following capabilities in its manifest:
+- `websocket_connect`: Permission to establish WebSocket connections
+- `websocket_send`: Permission to send messages
+- `websocket_recv`: Permission to receive messages
+- `websocket_close`: Permission to close connections
 
 ### Config loading
 `LoadConfig` is an alias of `GetConfig` for more idiomatic naming in user code:
@@ -149,6 +184,7 @@ The agent imports host functions from the `env` module:
 - `http_request`
 - `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close`
 - `udp_sendto`
+- `websocket_connect` / `websocket_send` / `websocket_recv` / `websocket_close`
 
 The SDK wraps these functions and exports `alloc`/`dealloc` for host memory access.
 
