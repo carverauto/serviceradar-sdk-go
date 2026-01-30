@@ -8,6 +8,7 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Result builder for `serviceradar.plugin_result.v1`
 - Logging bridge
 - HTTP/TCP/UDP proxy wrappers
+- Support for Websockets
 - Event emission + alert promotion hints
 
 ## Install
