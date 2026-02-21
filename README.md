@@ -158,6 +158,15 @@ The plugin must have the following capabilities in its manifest:
 - `websocket_recv`: Permission to receive messages
 - `websocket_close`: Permission to close connections
 
+To include headers (for example Authorization) on the initial WebSocket handshake:
+
+```go
+headers := map[string]string{
+  "Authorization": "Basic <base64-user-pass>",
+}
+conn, err := sdk.WebSocketConnectWithHeaders("wss://camera.local/vapix/ws-data-stream?sources=events", headers, 10*time.Second)
+```
+
 ### Config loading
 `LoadConfig` is an alias of `GetConfig` for more idiomatic naming in user code:
 
