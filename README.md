@@ -167,6 +167,40 @@ if err := sdk.LoadConfig(&cfg); err != nil {
 }
 ```
 
+### Policy input payload helpers (`serviceradar.plugin_inputs.v1`)
+For policy-driven plugin assignments, decode and validate the typed input payload:
+
+```go
+var payload sdk.PluginInputsPayload
+
+if err := sdk.LoadConfig(&payload); err != nil {
+    return nil, err
+}
+if err := payload.Validate(); err != nil {
+    return nil, err
+}
+
+// Iterate all resolved items (devices/interfaces/etc.)
+err := payload.EachItem(func(item sdk.PluginInputItem) error {
+    // item.Entity: "devices" | "interfaces" | ...
+    // item.Item:   map with resolved fields (uid/ip/if_name/etc.)
+    return nil
+})
+if err != nil {
+    return nil, err
+}
+
+devices := payload.ItemsByEntity("devices")
+_ = devices
+```
+
+Helpers also include:
+- `sdk.ParsePluginInputsJSON([]byte)`
+- `sdk.ParsePluginInputsMap(map[string]any)`
+- `(*PluginInputsPayload).FlattenItems()`
+- `(*PluginInputsPayload).ItemsByEntity(string)`
+- `(*PluginInputsPayload).ItemsByName(string)`
+
 ## Build
 
 ```bash
