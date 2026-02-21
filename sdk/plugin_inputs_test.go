@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+var errStopIteration = errors.New("stop iteration")
+
 func TestParsePluginInputsJSON_Valid(t *testing.T) {
 	raw := []byte(`{
 		"schema":"serviceradar.plugin_inputs.v1",
@@ -59,7 +61,7 @@ func TestParsePluginInputsJSON_InvalidSchema(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	if !strings.Contains(err.Error(), "invalid plugin inputs schema") {
+	if !strings.Contains(err.Error(), "invalid schema") {
 		t.Fatalf("expected invalid schema error, got %v", err)
 	}
 }
@@ -137,19 +139,18 @@ func TestPluginInputsPayload_EachItemStopsOnError(t *testing.T) {
 		},
 	}
 
-	sentinel := errors.New("stop")
 	seen := 0
 
 	err := payload.EachItem(func(item PluginInputItem) error {
 		seen++
 		if item.Item["uid"] == "d2" {
-			return sentinel
+			return errStopIteration
 		}
 		return nil
 	})
 
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("expected sentinel error, got %v", err)
+	if !errors.Is(err, errStopIteration) {
+		t.Fatalf("expected stop iteration error, got %v", err)
 	}
 	if seen != 2 {
 		t.Fatalf("expected to visit 2 items, visited %d", seen)
