@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -13,26 +14,62 @@ type WebSocketConn struct {
 	handle uint32
 }
 
+type webSocketConnectPayload struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
 // WebSocketConnect opens a WebSocket connection via the host proxy.
 func WebSocketConnect(url string, timeout time.Duration) (*WebSocketConn, error) {
 	return WebSocketConnectContext(context.Background(), url, timeout)
 }
 
+// WebSocketConnectWithHeaders opens a WebSocket connection via the host proxy
+// using optional request headers (for example Authorization).
+func WebSocketConnectWithHeaders(url string, headers map[string]string, timeout time.Duration) (*WebSocketConn, error) {
+	return WebSocketConnectContextWithHeaders(context.Background(), url, headers, timeout)
+}
+
 // WebSocketConnectContext opens a WebSocket connection via the host proxy with a context.
 func WebSocketConnectContext(ctx context.Context, url string, timeout time.Duration) (*WebSocketConn, error) {
+	return WebSocketConnectContextWithHeaders(ctx, url, nil, timeout)
+}
+
+// WebSocketConnectContextWithHeaders opens a WebSocket connection via the host
+// proxy with optional request headers and context.
+func WebSocketConnectContextWithHeaders(
+	ctx context.Context,
+	url string,
+	headers map[string]string,
+	timeout time.Duration,
+) (*WebSocketConn, error) {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 	}
 
-	urlBytes := []byte(url)
-	res := hostWebSocketConnect(ptrFromBytes(urlBytes), uint32(len(urlBytes)), uint32(timeout.Milliseconds()))
+	payload, err := encodeWebSocketConnectPayload(url, headers)
+	if err != nil {
+		return nil, err
+	}
+	res := hostWebSocketConnect(ptrFromBytes(payload), uint32(len(payload)), uint32(timeout.Milliseconds()))
 
 	if res < 0 {
 		return nil, hostErr(res, "websocket_connect")
 	}
 	return &WebSocketConn{handle: uint32(res)}, nil
+}
+
+func encodeWebSocketConnectPayload(url string, headers map[string]string) ([]byte, error) {
+	if len(headers) == 0 {
+		return []byte(url), nil
+	}
+	payload := webSocketConnectPayload{
+		URL:     url,
+		Headers: headers,
+	}
+	return json.Marshal(payload)
 }
 
 // Send sends data through the WebSocket connection.
