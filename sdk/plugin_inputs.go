@@ -13,7 +13,20 @@ const (
 )
 
 var (
-	errPluginInputsNilPayload = errors.New("plugin inputs payload is nil")
+	errPluginInputsNilPayload         = errors.New("plugin inputs payload is nil")
+	errPluginInputsInvalidSchema      = errors.New("plugin inputs payload has invalid schema")
+	errPluginInputsMissingPolicyID    = errors.New("plugin inputs payload missing policy_id")
+	errPluginInputsInvalidPolicyVer   = errors.New("plugin inputs payload has invalid policy_version")
+	errPluginInputsMissingAgentID     = errors.New("plugin inputs payload missing agent_id")
+	errPluginInputsMissingGeneratedAt = errors.New("plugin inputs payload missing generated_at")
+	errPluginInputsMissingInputs      = errors.New("plugin inputs payload missing inputs")
+	errPluginInputsMissingInputName   = errors.New("plugin inputs payload missing input name")
+	errPluginInputsMissingInputEntity = errors.New("plugin inputs payload missing input entity")
+	errPluginInputsMissingInputQuery  = errors.New("plugin inputs payload missing input query")
+	errPluginInputsInvalidChunkIndex  = errors.New("plugin inputs payload has invalid input chunk_index")
+	errPluginInputsInvalidChunkTotal  = errors.New("plugin inputs payload has invalid input chunk_total")
+	errPluginInputsMissingInputHash   = errors.New("plugin inputs payload missing input chunk_hash")
+	errPluginInputsMissingInputItems  = errors.New("plugin inputs payload missing input items")
 )
 
 // PluginInputsPayload is the typed schema for policy-driven plugin input params.
@@ -79,45 +92,45 @@ func (p *PluginInputsPayload) Validate() error {
 	}
 
 	if strings.TrimSpace(p.Schema) != PluginInputsSchemaV1 {
-		return fmt.Errorf("invalid plugin inputs schema %q", p.Schema)
+		return fmt.Errorf("%w: %q", errPluginInputsInvalidSchema, p.Schema)
 	}
 	if strings.TrimSpace(p.PolicyID) == "" {
-		return errors.New("plugin inputs payload missing policy_id")
+		return errPluginInputsMissingPolicyID
 	}
 	if p.PolicyVersion < 1 {
-		return errors.New("plugin inputs payload has invalid policy_version")
+		return errPluginInputsInvalidPolicyVer
 	}
 	if strings.TrimSpace(p.AgentID) == "" {
-		return errors.New("plugin inputs payload missing agent_id")
+		return errPluginInputsMissingAgentID
 	}
 	if strings.TrimSpace(p.GeneratedAt) == "" {
-		return errors.New("plugin inputs payload missing generated_at")
+		return errPluginInputsMissingGeneratedAt
 	}
 	if len(p.Inputs) == 0 {
-		return errors.New("plugin inputs payload missing inputs")
+		return errPluginInputsMissingInputs
 	}
 
 	for i, in := range p.Inputs {
 		if strings.TrimSpace(in.Name) == "" {
-			return fmt.Errorf("plugin inputs payload missing inputs[%d].name", i)
+			return fmt.Errorf("%w at inputs[%d].name", errPluginInputsMissingInputName, i)
 		}
 		if strings.TrimSpace(in.Entity) == "" {
-			return fmt.Errorf("plugin inputs payload missing inputs[%d].entity", i)
+			return fmt.Errorf("%w at inputs[%d].entity", errPluginInputsMissingInputEntity, i)
 		}
 		if strings.TrimSpace(in.Query) == "" {
-			return fmt.Errorf("plugin inputs payload missing inputs[%d].query", i)
+			return fmt.Errorf("%w at inputs[%d].query", errPluginInputsMissingInputQuery, i)
 		}
 		if in.ChunkIndex < 0 {
-			return fmt.Errorf("plugin inputs payload has invalid inputs[%d].chunk_index", i)
+			return fmt.Errorf("%w at inputs[%d].chunk_index", errPluginInputsInvalidChunkIndex, i)
 		}
 		if in.ChunkTotal < 1 {
-			return fmt.Errorf("plugin inputs payload has invalid inputs[%d].chunk_total", i)
+			return fmt.Errorf("%w at inputs[%d].chunk_total", errPluginInputsInvalidChunkTotal, i)
 		}
 		if strings.TrimSpace(in.ChunkHash) == "" {
-			return fmt.Errorf("plugin inputs payload missing inputs[%d].chunk_hash", i)
+			return fmt.Errorf("%w at inputs[%d].chunk_hash", errPluginInputsMissingInputHash, i)
 		}
 		if len(in.Items) == 0 {
-			return fmt.Errorf("plugin inputs payload missing inputs[%d].items", i)
+			return fmt.Errorf("%w at inputs[%d].items", errPluginInputsMissingInputItems, i)
 		}
 	}
 
