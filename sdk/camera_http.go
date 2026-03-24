@@ -12,9 +12,10 @@ var errCameraHostRequired = errors.New("host is required")
 
 // CameraHTTPClient wraps the shared HTTP request behavior for camera plugins.
 type CameraHTTPClient struct {
-	BaseURL    string
-	Timeout    time.Duration
-	AuthHeader string
+	BaseURL            string
+	Timeout            time.Duration
+	AuthHeader         string
+	InsecureSkipVerify bool
 }
 
 // NewCameraHTTPClient builds a shared HTTP client from camera plugin config.
@@ -30,9 +31,10 @@ func NewCameraHTTPClient(cfg CameraPluginConfig, fallbackTimeout time.Duration) 
 	}
 
 	return &CameraHTTPClient{
-		BaseURL:    fmt.Sprintf("%s://%s", scheme, host),
-		Timeout:    cfg.ParsedTimeout(fallbackTimeout),
-		AuthHeader: cfg.BasicAuthHeader(),
+		BaseURL:            fmt.Sprintf("%s://%s", scheme, host),
+		Timeout:            cfg.ParsedTimeout(fallbackTimeout),
+		AuthHeader:         cfg.BasicAuthHeader(),
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
 	}, nil
 }
 
@@ -56,6 +58,9 @@ func (c *CameraHTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTT
 	}
 	if req.TimeoutMS == 0 {
 		req.TimeoutMS = int(c.Timeout.Milliseconds())
+	}
+	if c.InsecureSkipVerify {
+		req.InsecureSkipVerify = true
 	}
 	if c.AuthHeader != "" {
 		if req.Headers == nil {

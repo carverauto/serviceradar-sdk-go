@@ -11,14 +11,15 @@ var errInvalidCameraScheme = errors.New("scheme must be http or https")
 
 // CameraPluginConfig defines the common config shape for HTTP-discoverable camera plugins.
 type CameraPluginConfig struct {
-	Host            string `json:"host"`
-	Scheme          string `json:"scheme"`
-	Username        string `json:"username"`
-	Password        string `json:"password"`
-	Timeout         string `json:"timeout"`
-	DiscoverStreams bool   `json:"discover_streams"`
-	CollectEvents   bool   `json:"collect_events"`
-	EventSources    string `json:"event_sources"`
+	Host               string `json:"host"`
+	Scheme             string `json:"scheme"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	Timeout            string `json:"timeout"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+	DiscoverStreams    bool   `json:"discover_streams"`
+	CollectEvents      bool   `json:"collect_events"`
+	EventSources       string `json:"event_sources"`
 }
 
 // CameraStreamingConfig defines the common config shape for camera streaming plugins.

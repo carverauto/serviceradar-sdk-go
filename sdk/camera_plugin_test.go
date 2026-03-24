@@ -9,7 +9,7 @@ func TestDefaultCameraPluginConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := DefaultCameraPluginConfig()
-	if cfg.Scheme != "http" || !cfg.DiscoverStreams || cfg.CollectEvents || cfg.EventSources != "events" || cfg.Timeout != "10s" {
+	if cfg.Scheme != "http" || cfg.InsecureSkipVerify || !cfg.DiscoverStreams || cfg.CollectEvents || cfg.EventSources != "events" || cfg.Timeout != "10s" {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
 }

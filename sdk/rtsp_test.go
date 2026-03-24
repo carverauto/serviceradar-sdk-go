@@ -24,6 +24,26 @@ func TestParseRTSPEndpoint(t *testing.T) {
 	if endpoint.RequestURI != "/axis-media/media.amp?stream=1" {
 		t.Fatalf("unexpected request uri: %s", endpoint.RequestURI)
 	}
+	if endpoint.Scheme != "rtsp" {
+		t.Fatalf("unexpected scheme: %s", endpoint.Scheme)
+	}
+}
+
+func TestParseRTSPEndpointRTSPS(t *testing.T) {
+	endpoint, err := ParseRTSPEndpoint("rtsps://camera.local:7441/stream?enableSrtp", "", "")
+	if err != nil {
+		t.Fatalf("ParseRTSPEndpoint returned error: %v", err)
+	}
+
+	if endpoint.Scheme != "rtsps" {
+		t.Fatalf("unexpected scheme: %s", endpoint.Scheme)
+	}
+	if endpoint.Port != 7441 {
+		t.Fatalf("unexpected port: %d", endpoint.Port)
+	}
+	if endpoint.BaseURL != "rtsps://camera.local:7441" {
+		t.Fatalf("unexpected base url: %s", endpoint.BaseURL)
+	}
 }
 
 func TestBuildRTSPAuthorization(t *testing.T) {
