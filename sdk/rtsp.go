@@ -3,10 +3,12 @@ package sdk
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -28,6 +30,7 @@ var (
 // RTSPEndpoint is a parsed RTSP connection target.
 type RTSPEndpoint struct {
 	RawURL     string
+	Scheme     string
 	Host       string
 	Port       uint16
 	RequestURI string
@@ -80,7 +83,7 @@ type RTSPH264Depacketizer struct {
 
 // RTSPClient provides a narrow RTSP-over-TCP client for camera plugins.
 type RTSPClient struct {
-	Conn     *TCPConn
+	Conn     RTSPTransport
 	Timeout  time.Duration
 	Endpoint RTSPEndpoint
 	Seq      int
@@ -88,14 +91,46 @@ type RTSPClient struct {
 	Auth     *RTSPAuthState
 }
 
+// RTSPTransport is the narrow transport contract used by the RTSP client.
+type RTSPTransport interface {
+	Read([]byte, time.Duration) (int, error)
+	Write([]byte, time.Duration) (int, error)
+	Close() error
+}
+
 // NewRTSPClient constructs an RTSP client with a default starting CSeq.
-func NewRTSPClient(conn *TCPConn, timeout time.Duration, endpoint RTSPEndpoint) *RTSPClient {
+func NewRTSPClient(conn RTSPTransport, timeout time.Duration, endpoint RTSPEndpoint) *RTSPClient {
 	return &RTSPClient{
 		Conn:     conn,
 		Timeout:  timeout,
 		Endpoint: endpoint,
 		Seq:      1,
 	}
+}
+
+// DialRTSPTransport opens an RTSP or RTSPS transport from a parsed endpoint.
+func DialRTSPTransport(endpoint RTSPEndpoint, timeout time.Duration, insecureSkipVerify bool) (RTSPTransport, error) {
+	rawConn, err := TCPDial(endpoint.Host, endpoint.Port, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	baseConn := rawConn.NetConn()
+	if endpoint.Scheme == "rtsps" {
+		tlsConn := tls.Client(baseConn, &tls.Config{
+			ServerName:         endpoint.Host,
+			InsecureSkipVerify: insecureSkipVerify, //nolint:gosec
+		})
+		_ = tlsConn.SetDeadline(time.Now().Add(timeout))
+		if err := tlsConn.Handshake(); err != nil {
+			_ = tlsConn.Close()
+			return nil, err
+		}
+		_ = tlsConn.SetDeadline(time.Time{})
+		return &netRTSPConn{conn: tlsConn}, nil
+	}
+
+	return &netRTSPConn{conn: baseConn}, nil
 }
 
 // DoRequest sends a single RTSP request and handles one auth challenge retry.
@@ -150,7 +185,8 @@ func (c *RTSPClient) Teardown() error {
 // ParseRTSPEndpoint parses an RTSP URL and optional credential overrides.
 func ParseRTSPEndpoint(rawURL, username, password string) (RTSPEndpoint, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || parsed.Host == "" || parsed.Scheme != "rtsp" {
+	scheme := strings.ToLower(parsed.Scheme)
+	if err != nil || parsed.Host == "" || (scheme != "rtsp" && scheme != "rtsps") {
 		return RTSPEndpoint{}, ErrRTSPInvalidURL
 	}
 
@@ -160,6 +196,9 @@ func ParseRTSPEndpoint(rawURL, username, password string) (RTSPEndpoint, error) 
 	}
 
 	port := uint16(554)
+	if scheme == "rtsps" {
+		port = 322
+	}
 	if parsed.Port() != "" {
 		value, convErr := strconv.Atoi(parsed.Port())
 		if convErr != nil || value <= 0 || value > 65535 {
@@ -182,10 +221,11 @@ func ParseRTSPEndpoint(rawURL, username, password string) (RTSPEndpoint, error) 
 
 	return RTSPEndpoint{
 		RawURL:     rawURL,
+		Scheme:     scheme,
 		Host:       host,
 		Port:       port,
 		RequestURI: requestURI,
-		BaseURL:    fmt.Sprintf("rtsp://%s", parsed.Host),
+		BaseURL:    fmt.Sprintf("%s://%s", scheme, parsed.Host),
 		Username:   username,
 		Password:   password,
 	}, nil
@@ -380,7 +420,7 @@ func firstNonBlank(values ...string) string {
 }
 
 // ReadRTSPResponse reads and parses a single RTSP response.
-func ReadRTSPResponse(conn *TCPConn, timeout time.Duration) (*RTSPResponse, error) {
+func ReadRTSPResponse(conn RTSPTransport, timeout time.Duration) (*RTSPResponse, error) {
 	buf := make([]byte, 64*1024)
 	n, err := conn.Read(buf, timeout)
 	if err != nil {
@@ -482,7 +522,7 @@ func ResolveRTSPControlURL(endpoint RTSPEndpoint, control string) string {
 	if control == "" {
 		return endpoint.RequestURI
 	}
-	if strings.HasPrefix(control, "rtsp://") {
+	if strings.HasPrefix(control, "rtsp://") || strings.HasPrefix(control, "rtsps://") {
 		return control
 	}
 	if strings.HasPrefix(control, "/") {
@@ -516,6 +556,34 @@ func ParseInterleavedFrame(data []byte) (RTSPInterleavedFrame, error) {
 		Channel: data[1],
 		Payload: payload,
 	}, nil
+}
+
+type netRTSPConn struct {
+	conn net.Conn
+}
+
+func (c *netRTSPConn) Read(buf []byte, timeout time.Duration) (int, error) {
+	if timeout > 0 {
+		_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
+	} else {
+		_ = c.conn.SetReadDeadline(time.Time{})
+	}
+
+	return c.conn.Read(buf)
+}
+
+func (c *netRTSPConn) Write(data []byte, timeout time.Duration) (int, error) {
+	if timeout > 0 {
+		_ = c.conn.SetWriteDeadline(time.Now().Add(timeout))
+	} else {
+		_ = c.conn.SetWriteDeadline(time.Time{})
+	}
+
+	return c.conn.Write(data)
+}
+
+func (c *netRTSPConn) Close() error {
+	return c.conn.Close()
 }
 
 // ParseRTPPacket extracts RTP payload, marker bit, and timestamp.

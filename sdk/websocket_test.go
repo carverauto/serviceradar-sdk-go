@@ -66,3 +66,26 @@ func TestEncodeWebSocketDialRequestWithHeadersUsesJSONPayload(t *testing.T) {
 		t.Fatalf("expected blank header key to be dropped")
 	}
 }
+
+func TestEncodeWebSocketDialRequestWithInsecureTLSUsesJSONPayload(t *testing.T) {
+	t.Parallel()
+
+	data, err := encodeWebSocketDialRequest(WebSocketDialRequest{
+		URL:                "wss://protect.local/ws",
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload WebSocketDialRequest
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("expected JSON payload, got error: %v", err)
+	}
+	if payload.URL != "wss://protect.local/ws" {
+		t.Fatalf("unexpected url %q", payload.URL)
+	}
+	if !payload.InsecureSkipVerify {
+		t.Fatalf("expected insecure TLS flag to be set")
+	}
+}

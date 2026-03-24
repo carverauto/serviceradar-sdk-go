@@ -28,6 +28,25 @@ func TestNewCameraHTTPClient(t *testing.T) {
 	if client.AuthHeader != "Basic cm9vdDpzZWNyZXQ=" {
 		t.Fatalf("unexpected auth header: %q", client.AuthHeader)
 	}
+	if client.InsecureSkipVerify {
+		t.Fatalf("expected insecure TLS to default false")
+	}
+}
+
+func TestNewCameraHTTPClientPropagatesInsecureSkipVerify(t *testing.T) {
+	t.Parallel()
+
+	client, err := NewCameraHTTPClient(CameraPluginConfig{
+		Host:               "camera.local",
+		Scheme:             "https",
+		InsecureSkipVerify: true,
+	}, 3*time.Second)
+	if err != nil {
+		t.Fatalf("expected client, got error %v", err)
+	}
+	if !client.InsecureSkipVerify {
+		t.Fatalf("expected insecure TLS flag to propagate")
+	}
 }
 
 func TestCameraHTTPClientURL(t *testing.T) {

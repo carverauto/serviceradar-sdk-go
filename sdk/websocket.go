@@ -12,8 +12,9 @@ var errWebSocketConnNotInitialized = errors.New("websocket connection not initia
 
 // WebSocketDialRequest defines a websocket connection request for the host proxy.
 type WebSocketDialRequest struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
 }
 
 // WebSocketConn wraps a host websocket connection handle.
@@ -69,13 +70,14 @@ func WebSocketDialRequestContext(ctx context.Context, req WebSocketDialRequest, 
 
 func encodeWebSocketDialRequest(req WebSocketDialRequest) ([]byte, error) {
 	rawURL := strings.TrimSpace(req.URL)
-	if len(req.Headers) == 0 {
+	if len(req.Headers) == 0 && !req.InsecureSkipVerify {
 		return []byte(rawURL), nil
 	}
 
 	payload := WebSocketDialRequest{
-		URL:     rawURL,
-		Headers: make(map[string]string, len(req.Headers)),
+		URL:                rawURL,
+		Headers:            make(map[string]string, len(req.Headers)),
+		InsecureSkipVerify: req.InsecureSkipVerify,
 	}
 	for key, value := range req.Headers {
 		trimmedKey := strings.TrimSpace(key)
@@ -85,7 +87,7 @@ func encodeWebSocketDialRequest(req WebSocketDialRequest) ([]byte, error) {
 		}
 		payload.Headers[trimmedKey] = trimmedValue
 	}
-	if len(payload.Headers) == 0 {
+	if len(payload.Headers) == 0 && !payload.InsecureSkipVerify {
 		return []byte(rawURL), nil
 	}
 
