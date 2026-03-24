@@ -28,3 +28,27 @@ func hostTCPClose(handle uint32) int32
 
 //go:wasmimport env udp_sendto
 func hostUDPSendTo(addrPtr uint32, addrLen uint32, port uint32, bufPtr uint32, bufLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_connect
+func hostWebSocketConnect(urlPtr uint32, urlLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_send
+func hostWebSocketSend(handle uint32, dataPtr uint32, dataLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_recv
+func hostWebSocketRecv(handle uint32, bufPtr uint32, bufLen uint32, timeoutMS uint32) int32
+
+//go:wasmimport env websocket_close
+func hostWebSocketClose(handle uint32) int32
+
+//go:wasmimport env camera_media_open
+func hostCameraMediaOpen(reqPtr uint32, reqLen uint32) int32
+
+//go:wasmimport env camera_media_write
+func hostCameraMediaWrite(handle uint32, metaPtr uint32, metaLen uint32, payloadPtr uint32, payloadLen uint32) int32
+
+//go:wasmimport env camera_media_heartbeat
+func hostCameraMediaHeartbeat(handle uint32, metaPtr uint32, metaLen uint32) int32
+
+//go:wasmimport env camera_media_close
+func hostCameraMediaClose(handle uint32, reasonPtr uint32, reasonLen uint32) int32

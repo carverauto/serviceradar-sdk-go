@@ -35,3 +35,35 @@ func hostTCPClose(_ uint32) int32 {
 func hostUDPSendTo(_ uint32, _ uint32, _ uint32, _ uint32, _ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }
+
+func hostWebSocketConnect(_ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostWebSocketSend(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostWebSocketRecv(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostWebSocketClose(_ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostCameraMediaOpen(_ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostCameraMediaWrite(_ uint32, _ uint32, _ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostCameraMediaHeartbeat(_ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
+func hostCameraMediaClose(_ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
