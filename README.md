@@ -120,7 +120,7 @@ Context variants exist for host I/O to match Go expectations:
 - HTTP: `HTTP.DoContext`, `HTTP.GetContext`, `HTTP.PostContext`
 - TCP: `TCPDialContext`, `(*TCPConn).ReadContext`, `(*TCPConn).WriteContext`
 - UDP: `UDPSendToContext`
-- WebSocket: `WebSocketDialContext`, `(*WebSocketConn).ReadContext`, `(*WebSocketConn).WriteContext`
+- WebSocket: `WebSocketDialContext`, `(*WebSocketConn).SendContext`, `(*WebSocketConn).RecvContext`
 
 These currently check `ctx.Err()` before the host call (TinyGo/Wasm is synchronous), but give you a stable API if cancellation support is added later.
 
@@ -129,22 +129,24 @@ The SDK provides WebSocket client capabilities for plugins that need to communic
 
 ```go
 // Dial a WebSocket endpoint
-conn, err := sdk.WebSocketDialContext(ctx, "ws://localhost:8080/ws")
+conn, err := sdk.WebSocketDialContext(ctx, "ws://localhost:8080/ws", 10*time.Second)
 if err != nil {
     return nil, fmt.Errorf("websocket dial failed: %w", err)
 }
 defer conn.Close()
 
 // Send a message
-if err := conn.WriteContext(ctx, []byte(`{"method": "getInfo"}`)); err != nil {
-    return nil, fmt.Errorf("websocket write failed: %w", err)
+if err := conn.SendContext(ctx, []byte(`{"method": "getInfo"}`), 10*time.Second); err != nil {
+    return nil, fmt.Errorf("websocket send failed: %w", err)
 }
 
 // Read response
-data, err := conn.ReadContext(ctx)
+buf := make([]byte, 4096)
+n, err := conn.RecvContext(ctx, buf, 10*time.Second)
 if err != nil {
-    return nil, fmt.Errorf("websocket read failed: %w", err)
+    return nil, fmt.Errorf("websocket recv failed: %w", err)
 }
+data := buf[:n]
 ```
 
 WebSocket connections are mediated by the host runtime, which enforces:
@@ -228,6 +230,7 @@ The agent imports host functions from the `env` module:
 - `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close`
 - `udp_sendto`
 - `websocket_connect` / `websocket_send` / `websocket_recv` / `websocket_close`
+- `camera_media_open` / `camera_media_write` / `camera_media_heartbeat` / `camera_media_close`
 
 The SDK wraps these functions and exports `alloc`/`dealloc` for host memory access.
 

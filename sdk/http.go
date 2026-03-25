@@ -11,12 +11,13 @@ import (
 
 // HTTPRequest defines a proxied HTTP request.
 type HTTPRequest struct {
-	Method     string
-	URL        string
-	Headers    map[string]string
-	Body       []byte
-	BodyBase64 bool
-	TimeoutMS  int
+	Method             string
+	URL                string
+	Headers            map[string]string
+	Body               []byte
+	BodyBase64         bool
+	TimeoutMS          int
+	InsecureSkipVerify bool
 }
 
 // HTTPResponse contains the proxied response data.
@@ -28,12 +29,13 @@ type HTTPResponse struct {
 }
 
 type httpRequestPayload struct {
-	Method     string            `json:"method"`
-	URL        string            `json:"url"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	BodyBase64 string            `json:"body_base64,omitempty"`
-	TimeoutMS  int               `json:"timeout_ms,omitempty"`
+	Method             string            `json:"method"`
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	Body               string            `json:"body,omitempty"`
+	BodyBase64         string            `json:"body_base64,omitempty"`
+	TimeoutMS          int               `json:"timeout_ms,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
 }
 
 type httpResponsePayload struct {
@@ -66,10 +68,11 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		}
 	}
 	payload := httpRequestPayload{
-		Method:    strings.ToUpper(strings.TrimSpace(req.Method)),
-		URL:       req.URL,
-		Headers:   req.Headers,
-		TimeoutMS: req.TimeoutMS,
+		Method:             strings.ToUpper(strings.TrimSpace(req.Method)),
+		URL:                req.URL,
+		Headers:            req.Headers,
+		TimeoutMS:          req.TimeoutMS,
+		InsecureSkipVerify: req.InsecureSkipVerify,
 	}
 
 	if payload.Method == "" {

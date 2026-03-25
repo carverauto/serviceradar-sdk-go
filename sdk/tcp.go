@@ -3,6 +3,8 @@ package sdk
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
 	"time"
 )
 
@@ -11,6 +13,11 @@ var errTCPConnNotInitialized = errors.New("tcp connection not initialized")
 // TCPConn wraps a host TCP connection handle.
 type TCPConn struct {
 	handle uint32
+}
+
+// NetConn exposes the host TCP connection as a net.Conn for TLS wrappers.
+func (c *TCPConn) NetConn() net.Conn {
+	return &hostNetConn{conn: c}
 }
 
 // TCPDial opens a TCP connection via the host proxy.
@@ -101,4 +108,69 @@ func (c *TCPConn) Close() error {
 	c.handle = 0
 
 	return hostErr(res, "tcp_close")
+}
+
+type hostNetConn struct {
+	conn          *TCPConn
+	readDeadline  time.Time
+	writeDeadline time.Time
+}
+
+func (c *hostNetConn) Read(buf []byte) (int, error) {
+	timeout, err := timeoutUntil(c.readDeadline)
+	if err != nil {
+		return 0, err
+	}
+
+	return c.conn.Read(buf, timeout)
+}
+
+func (c *hostNetConn) Write(data []byte) (int, error) {
+	timeout, err := timeoutUntil(c.writeDeadline)
+	if err != nil {
+		return 0, err
+	}
+
+	return c.conn.Write(data, timeout)
+}
+
+func (c *hostNetConn) Close() error {
+	return c.conn.Close()
+}
+
+func (c *hostNetConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{}
+}
+
+func (c *hostNetConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{}
+}
+
+func (c *hostNetConn) SetDeadline(t time.Time) error {
+	c.readDeadline = t
+	c.writeDeadline = t
+	return nil
+}
+
+func (c *hostNetConn) SetReadDeadline(t time.Time) error {
+	c.readDeadline = t
+	return nil
+}
+
+func (c *hostNetConn) SetWriteDeadline(t time.Time) error {
+	c.writeDeadline = t
+	return nil
+}
+
+func timeoutUntil(deadline time.Time) (time.Duration, error) {
+	if deadline.IsZero() {
+		return 0, nil
+	}
+
+	timeout := time.Until(deadline)
+	if timeout <= 0 {
+		return 0, os.ErrDeadlineExceeded
+	}
+
+	return timeout, nil
 }
