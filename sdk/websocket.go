@@ -4,35 +4,64 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
-var errWebSocketNotInitialized = errors.New("websocket connection not initialized")
+var errWebSocketConnNotInitialized = errors.New("websocket connection not initialized")
+var errWebSocketNotInitialized = errWebSocketConnNotInitialized
+
+// WebSocketDialRequest defines a WebSocket connection request for the host proxy.
+type WebSocketDialRequest struct {
+	URL                string            `json:"url"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
+}
 
 // WebSocketConn wraps a host WebSocket connection handle.
 type WebSocketConn struct {
 	handle uint32
 }
 
-type webSocketConnectPayload struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
+// WebSocketDial opens a WebSocket connection via the host proxy.
+func WebSocketDial(rawURL string, timeout time.Duration) (*WebSocketConn, error) {
+	return WebSocketDialContext(context.Background(), rawURL, timeout)
+}
+
+// WebSocketDialWithHeaders opens a WebSocket connection via the host proxy with request headers.
+func WebSocketDialWithHeaders(rawURL string, headers map[string]string, timeout time.Duration) (*WebSocketConn, error) {
+	return WebSocketDialWithHeadersContext(context.Background(), rawURL, headers, timeout)
+}
+
+// WebSocketDialContext opens a WebSocket connection via the host proxy with a context.
+func WebSocketDialContext(ctx context.Context, rawURL string, timeout time.Duration) (*WebSocketConn, error) {
+	return WebSocketDialRequestContext(ctx, WebSocketDialRequest{URL: rawURL}, timeout)
+}
+
+// WebSocketDialWithHeadersContext opens a WebSocket connection via the host proxy with request headers and a context.
+func WebSocketDialWithHeadersContext(
+	ctx context.Context,
+	rawURL string,
+	headers map[string]string,
+	timeout time.Duration,
+) (*WebSocketConn, error) {
+	return WebSocketDialRequestContext(ctx, WebSocketDialRequest{URL: rawURL, Headers: headers}, timeout)
 }
 
 // WebSocketConnect opens a WebSocket connection via the host proxy.
 func WebSocketConnect(url string, timeout time.Duration) (*WebSocketConn, error) {
-	return WebSocketConnectContext(context.Background(), url, timeout)
+	return WebSocketDial(url, timeout)
 }
 
 // WebSocketConnectWithHeaders opens a WebSocket connection via the host proxy
 // using optional request headers (for example Authorization).
 func WebSocketConnectWithHeaders(url string, headers map[string]string, timeout time.Duration) (*WebSocketConn, error) {
-	return WebSocketConnectContextWithHeaders(context.Background(), url, headers, timeout)
+	return WebSocketDialWithHeaders(url, headers, timeout)
 }
 
 // WebSocketConnectContext opens a WebSocket connection via the host proxy with a context.
 func WebSocketConnectContext(ctx context.Context, url string, timeout time.Duration) (*WebSocketConn, error) {
-	return WebSocketConnectContextWithHeaders(ctx, url, nil, timeout)
+	return WebSocketDialContext(ctx, url, timeout)
 }
 
 // WebSocketConnectContextWithHeaders opens a WebSocket connection via the host
@@ -43,33 +72,60 @@ func WebSocketConnectContextWithHeaders(
 	headers map[string]string,
 	timeout time.Duration,
 ) (*WebSocketConn, error) {
+	return WebSocketDialWithHeadersContext(ctx, url, headers, timeout)
+}
+
+// WebSocketDialRequestContext opens a WebSocket connection via the host proxy from a structured request.
+func WebSocketDialRequestContext(ctx context.Context, req WebSocketDialRequest, timeout time.Duration) (*WebSocketConn, error) {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 	}
 
-	payload, err := encodeWebSocketConnectPayload(url, headers)
+	data, err := encodeWebSocketDialRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	res := hostWebSocketConnect(ptrFromBytes(payload), uint32(len(payload)), uint32(timeout.Milliseconds()))
 
+	res := hostWebSocketConnect(ptrFromBytes(data), uint32(len(data)), uint32(timeout.Milliseconds()))
 	if res < 0 {
 		return nil, hostErr(res, "websocket_connect")
 	}
+
 	return &WebSocketConn{handle: uint32(res)}, nil
 }
 
-func encodeWebSocketConnectPayload(url string, headers map[string]string) ([]byte, error) {
-	if len(headers) == 0 {
-		return []byte(url), nil
+func encodeWebSocketDialRequest(req WebSocketDialRequest) ([]byte, error) {
+	rawURL := strings.TrimSpace(req.URL)
+	if len(req.Headers) == 0 && !req.InsecureSkipVerify {
+		return []byte(rawURL), nil
 	}
-	payload := webSocketConnectPayload{
-		URL:     url,
-		Headers: headers,
+
+	payload := WebSocketDialRequest{
+		URL:                rawURL,
+		InsecureSkipVerify: req.InsecureSkipVerify,
 	}
+	if len(req.Headers) > 0 {
+		payload.Headers = make(map[string]string, len(req.Headers))
+		for key, value := range req.Headers {
+			trimmedKey := strings.TrimSpace(key)
+			trimmedValue := strings.TrimSpace(value)
+			if trimmedKey == "" || trimmedValue == "" {
+				continue
+			}
+			payload.Headers[trimmedKey] = trimmedValue
+		}
+	}
+	if len(payload.Headers) == 0 && !payload.InsecureSkipVerify {
+		return []byte(rawURL), nil
+	}
+
 	return json.Marshal(payload)
+}
+
+func encodeWebSocketConnectPayload(url string, headers map[string]string) ([]byte, error) {
+	return encodeWebSocketDialRequest(WebSocketDialRequest{URL: url, Headers: headers})
 }
 
 // Send sends data through the WebSocket connection.
@@ -133,8 +189,8 @@ func (ws *WebSocketConn) Close() error {
 	if ws == nil || ws.handle == 0 {
 		return nil
 	}
-	res := hostWebSocketClose(ws.handle)
 
+	res := hostWebSocketClose(ws.handle)
 	ws.handle = 0
 
 	return hostErr(res, "websocket_close")
