@@ -1,6 +1,6 @@
 id: udp-check
 name: UDP Check
-version: 0.1.0
+version: 0.2.0
 entrypoint: run_check
 outputs: serviceradar.plugin_result.v1
 capabilities:
