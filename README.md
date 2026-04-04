@@ -14,7 +14,7 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 ## Install
 
 ```bash
-go get github.com/carverauto/serviceradar-sdk-go
+go get git.carverauto.dev/carverauto/serviceradar-sdk-go
 ```
 
 ## Example
@@ -25,7 +25,7 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/carverauto/serviceradar-sdk-go/sdk"
+    "git.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 type Config struct {
