@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"git.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 type Config struct {
