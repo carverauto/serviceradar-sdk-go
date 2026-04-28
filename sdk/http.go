@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -11,11 +12,14 @@ import (
 
 // HTTPRequest defines a proxied HTTP request.
 type HTTPRequest struct {
-	Method             string
-	URL                string
-	Headers            map[string]string
-	Body               []byte
-	BodyBase64         bool
+	Method     string
+	URL        string
+	Headers    map[string]string
+	Body       []byte
+	BodyBase64 bool
+	// ResponseMode selects the host response encoding. Empty uses the SDK's
+	// preferred raw status/body mode and remains compatible with legacy hosts.
+	ResponseMode       string
 	TimeoutMS          int
 	InsecureSkipVerify bool
 }
@@ -34,6 +38,7 @@ type httpRequestPayload struct {
 	Headers            map[string]string `json:"headers,omitempty"`
 	Body               string            `json:"body,omitempty"`
 	BodyBase64         string            `json:"body_base64,omitempty"`
+	ResponseMode       string            `json:"response_mode,omitempty"`
 	TimeoutMS          int               `json:"timeout_ms,omitempty"`
 	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
 }
@@ -71,12 +76,16 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		Method:             strings.ToUpper(strings.TrimSpace(req.Method)),
 		URL:                req.URL,
 		Headers:            req.Headers,
+		ResponseMode:       strings.TrimSpace(req.ResponseMode),
 		TimeoutMS:          req.TimeoutMS,
 		InsecureSkipVerify: req.InsecureSkipVerify,
 	}
 
 	if payload.Method == "" {
 		payload.Method = http.MethodGet
+	}
+	if payload.ResponseMode == "" {
+		payload.ResponseMode = "status_body"
 	}
 
 	if len(req.Body) > 0 {
@@ -111,29 +120,74 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		return nil, HostError{Code: hostErrTooLarge, Op: "http_request"}
 	}
 
+	response, ok, err := decodeStatusBodyHTTPResponse(respBuf[:res], time.Since(start))
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return response, nil
+	}
+
+	return decodeEnvelopeHTTPResponse(respBuf[:res], time.Since(start))
+}
+
+func decodeStatusBodyHTTPResponse(payload []byte, duration time.Duration) (*HTTPResponse, bool, error) {
+	lineEnd := -1
+
+	for i, ch := range payload {
+		if ch == '\n' {
+			lineEnd = i
+			break
+		}
+		if ch < '0' || ch > '9' {
+			return nil, false, nil
+		}
+	}
+	if lineEnd <= 0 {
+		return nil, false, nil
+	}
+
+	status, err := parseHTTPStatus(payload[:lineEnd])
+	if err != nil {
+		return nil, true, err
+	}
+
+	return &HTTPResponse{
+		Status:   status,
+		Body:     payload[lineEnd+1:],
+		Duration: duration,
+	}, true, nil
+}
+
+func decodeEnvelopeHTTPResponse(payload []byte, duration time.Duration) (*HTTPResponse, error) {
 	var responsePayload httpResponsePayload
 
-	if err := json.Unmarshal(respBuf[:res], &responsePayload); err != nil {
+	if err := json.Unmarshal(payload, &responsePayload); err != nil {
 		return nil, err
 	}
 
-	var body []byte
-
-	if responsePayload.BodyBase64 != "" {
-		decoded, err := base64.StdEncoding.DecodeString(responsePayload.BodyBase64)
-		if err != nil {
-			return nil, err
-		}
-
-		body = decoded
+	body, err := base64.StdEncoding.DecodeString(responsePayload.BodyBase64)
+	if err != nil {
+		return nil, err
 	}
 
 	return &HTTPResponse{
 		Status:   responsePayload.Status,
 		Headers:  responsePayload.Headers,
 		Body:     body,
-		Duration: time.Since(start),
+		Duration: duration,
 	}, nil
+}
+
+func parseHTTPStatus(value []byte) (int, error) {
+	status := 0
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return 0, fmt.Errorf("invalid http status byte %q", ch)
+		}
+		status = status*10 + int(ch-'0')
+	}
+	return status, nil
 }
 
 // Get performs a GET request.
