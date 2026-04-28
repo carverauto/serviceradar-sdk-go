@@ -57,3 +57,39 @@ func TestDecodeEnvelopeHTTPResponse(t *testing.T) {
 		t.Fatalf("duration = %s, want 2ms", resp.Duration)
 	}
 }
+
+func TestMarshalHTTPRequestPayload(t *testing.T) {
+	payload := httpRequestPayload{
+		Method:             "POST",
+		URL:                "https://example.invalid/path?q=1",
+		Headers:            map[string]string{"X-Test": "value"},
+		Body:               "line\nbody",
+		ResponseMode:       "status_body",
+		TimeoutMS:          1200,
+		InsecureSkipVerify: true,
+	}
+
+	got := string(marshalHTTPRequestPayload(payload))
+	for _, want := range []string{
+		`"method":"POST"`,
+		`"url":"https://example.invalid/path?q=1"`,
+		`"X-Test":"value"`,
+		`"body":"line\nbody"`,
+		`"response_mode":"status_body"`,
+		`"timeout_ms":1200`,
+		`"insecure_skip_verify":true`,
+	} {
+		if !contains(got, want) {
+			t.Fatalf("payload %s missing %s", got, want)
+		}
+	}
+}
+
+func contains(value, needle string) bool {
+	for i := 0; i+len(needle) <= len(value); i++ {
+		if value[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
