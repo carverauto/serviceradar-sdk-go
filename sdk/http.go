@@ -96,10 +96,7 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		}
 	}
 
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
+	encoded := marshalHTTPRequestPayload(payload)
 
 	respBufSize := c.MaxResponseBytes
 	if respBufSize == 0 {
@@ -188,6 +185,82 @@ func parseHTTPStatus(value []byte) (int, error) {
 		status = status*10 + int(ch-'0')
 	}
 	return status, nil
+}
+
+func marshalHTTPRequestPayload(payload httpRequestPayload) []byte {
+	var b strings.Builder
+
+	b.Grow(len(payload.URL) + len(payload.Body) + len(payload.BodyBase64) + 160)
+	b.WriteString(`{"method":`)
+	writeJSONString(&b, payload.Method)
+	b.WriteString(`,"url":`)
+	writeJSONString(&b, payload.URL)
+
+	if len(payload.Headers) > 0 {
+		b.WriteString(`,"headers":{`)
+		i := 0
+		for key, value := range payload.Headers {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			writeJSONString(&b, key)
+			b.WriteByte(':')
+			writeJSONString(&b, value)
+			i++
+		}
+		b.WriteByte('}')
+	}
+
+	if payload.Body != "" {
+		b.WriteString(`,"body":`)
+		writeJSONString(&b, payload.Body)
+	}
+	if payload.BodyBase64 != "" {
+		b.WriteString(`,"body_base64":`)
+		writeJSONString(&b, payload.BodyBase64)
+	}
+	if payload.ResponseMode != "" {
+		b.WriteString(`,"response_mode":`)
+		writeJSONString(&b, payload.ResponseMode)
+	}
+	if payload.TimeoutMS > 0 {
+		b.WriteString(`,"timeout_ms":`)
+		b.WriteString(fmt.Sprintf("%d", payload.TimeoutMS))
+	}
+	if payload.InsecureSkipVerify {
+		b.WriteString(`,"insecure_skip_verify":true`)
+	}
+	b.WriteByte('}')
+
+	return []byte(b.String())
+}
+
+func writeJSONString(b *strings.Builder, value string) {
+	b.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		switch ch {
+		case '\\', '"':
+			b.WriteByte('\\')
+			b.WriteByte(ch)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if ch < 0x20 {
+				b.WriteString(`\u00`)
+				const hex = "0123456789abcdef"
+				b.WriteByte(hex[ch>>4])
+				b.WriteByte(hex[ch&0x0f])
+			} else {
+				b.WriteByte(ch)
+			}
+		}
+	}
+	b.WriteByte('"')
 }
 
 // Get performs a GET request.
