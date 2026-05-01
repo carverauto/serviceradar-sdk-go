@@ -56,6 +56,59 @@ func TestSerializeIncludesMetrics(t *testing.T) {
 	}
 }
 
+func TestSerializeIncludesDeviceDiscovery(t *testing.T) {
+	available := true
+
+	discovery := NewDeviceDiscovery("ual-network-map").
+		WithDevice(DiscoveredDevice{
+			Hostname:    "NIAHAP-MDF001-WAP001",
+			MAC:         "b4:5d:50:c7:46:6c",
+			Serial:      "CNC3HN77NW",
+			VendorName:  "Aruba",
+			Model:       "325",
+			Type:        "access_point",
+			Role:        "ap_bridge",
+			IsAvailable: &available,
+			Location: &DeviceLocation{
+				SiteCode: "IAH",
+				SiteName: "George Bush Intercontinental Airport",
+			},
+			Metadata: map[string]any{
+				"integration_id": "wifi_map:access_point:CNC3HN77NW",
+			},
+		})
+
+	payload, err := NewResult().
+		WithStatus(StatusOK).
+		WithSummary("discovered 1 device").
+		WithDeviceDiscovery(*discovery).
+		Serialize()
+	if err != nil {
+		t.Fatalf("serialize failed: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	envelopes, ok := decoded["device_discovery"].([]any)
+	if !ok || len(envelopes) != 1 {
+		t.Fatalf("expected one device discovery envelope")
+	}
+
+	envelope := envelopes[0].(map[string]any)
+	if envelope["schema"] != DeviceDiscoverySchemaV1 {
+		t.Fatalf("unexpected device discovery schema: %v", envelope["schema"])
+	}
+
+	devices := envelope["devices"].([]any)
+	device := devices[0].(map[string]any)
+	if device["hostname"] != "NIAHAP-MDF001-WAP001" {
+		t.Fatalf("unexpected hostname: %v", device["hostname"])
+	}
+}
+
 func TestApplyThresholds(t *testing.T) {
 	warn := 10.0
 	crit := 20.0
