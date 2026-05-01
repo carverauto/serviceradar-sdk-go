@@ -29,18 +29,19 @@ const (
 
 // Result is the serviceradar.plugin_result.v1 payload.
 type Result struct {
-	Status        Status            `json:"status"`
-	Summary       string            `json:"summary"`
-	Details       string            `json:"details,omitempty"`
-	Perfdata      string            `json:"perfdata,omitempty"`
-	Metrics       []Metric          `json:"metrics,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
-	ObservedAt    string            `json:"observed_at,omitempty"`
-	SchemaVersion int               `json:"schema_version,omitempty"`
-	Display       []DisplayWidget   `json:"display,omitempty"`
-	Events        []OCSFEvent       `json:"events,omitempty"`
-	AlertHint     bool              `json:"alert_hint,omitempty"`
-	ConditionID   string            `json:"condition_id,omitempty"`
+	Status          Status            `json:"status"`
+	Summary         string            `json:"summary"`
+	Details         string            `json:"details,omitempty"`
+	Perfdata        string            `json:"perfdata,omitempty"`
+	Metrics         []Metric          `json:"metrics,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	ObservedAt      string            `json:"observed_at,omitempty"`
+	SchemaVersion   int               `json:"schema_version,omitempty"`
+	Display         []DisplayWidget   `json:"display,omitempty"`
+	Events          []OCSFEvent       `json:"events,omitempty"`
+	DeviceDiscovery []DeviceDiscovery `json:"device_discovery,omitempty"`
+	AlertHint       bool              `json:"alert_hint,omitempty"`
+	ConditionID     string            `json:"condition_id,omitempty"`
 }
 
 // Metric is a structured metric entry.
