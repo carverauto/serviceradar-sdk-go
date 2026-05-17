@@ -44,7 +44,9 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 		"api_url": "https://ncm.example",
 		"action_invocation": {
 			"schema": "serviceradar.northbound_action_invocation.v1",
+			"phase": "poll",
 			"invocation_id": "inv-1",
+			"invocation_target_id": "ivt-1",
 			"action_id": "hpna.disable_port",
 			"targets": [{
 				"kind": "interface",
@@ -53,7 +55,10 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 				"interface_uid": "if-1",
 				"if_name": "Gi1/0/1"
 			}],
-			"input_values": {"reason": "test"}
+			"input_values": {"reason": "test"},
+			"continuation_state": {"external_task_id": "task-123"},
+			"external_correlation_id": "task-123",
+			"poll_attempt_count": 2
 		}
 	}`)
 
@@ -64,6 +69,18 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 
 	if config.ActionInvocation.InvocationID != "inv-1" {
 		t.Fatalf("unexpected invocation id: %s", config.ActionInvocation.InvocationID)
+	}
+	if config.ActionInvocation.Phase != "poll" {
+		t.Fatalf("unexpected phase: %s", config.ActionInvocation.Phase)
+	}
+	if config.ActionInvocation.InvocationTargetID != "ivt-1" {
+		t.Fatalf("unexpected invocation target id: %s", config.ActionInvocation.InvocationTargetID)
+	}
+	if config.ActionInvocation.ContinuationState["external_task_id"] != "task-123" {
+		t.Fatalf("unexpected continuation state: %v", config.ActionInvocation.ContinuationState)
+	}
+	if config.ActionInvocation.PollAttemptCount != 2 {
+		t.Fatalf("unexpected poll attempts: %d", config.ActionInvocation.PollAttemptCount)
 	}
 	if len(config.ActionInvocation.Targets) != 1 {
 		t.Fatalf("expected one target")
@@ -80,6 +97,76 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 	}
 	if pluginConfig.APIURL != "https://ncm.example" {
 		t.Fatalf("unexpected plugin config: %s", pluginConfig.APIURL)
+	}
+}
+
+func TestDeferredActionResultSerializesPollFields(t *testing.T) {
+	payload, err := ActionDeferred("external task accepted").
+		WithCorrelationID("job-123").
+		WithContinuationState(map[string]any{"external_task_id": "job-123"}).
+		WithNextPollDelay(15).
+		WithMaxDuration(300).
+		WithTargetResult(ActionTargetResult{
+			DeviceUID:             "sr:device-1",
+			Status:                ActionStatusDeferred,
+			ExternalCorrelationID: "job-123",
+			ContinuationState:     map[string]any{"external_task_id": "job-123"},
+			NextPollDelaySeconds:  15,
+			MaxDurationSeconds:    300,
+			Result: map[string]any{
+				"message": "queued in external system",
+			},
+		}).
+		Serialize()
+	if err != nil {
+		t.Fatalf("serialize result: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+
+	if decoded["status"] != string(ActionStatusDeferred) {
+		t.Fatalf("status = %v", decoded["status"])
+	}
+	if decoded["next_poll_delay_seconds"] != float64(15) {
+		t.Fatalf("next poll delay = %v", decoded["next_poll_delay_seconds"])
+	}
+	if decoded["max_duration_seconds"] != float64(300) {
+		t.Fatalf("max duration = %v", decoded["max_duration_seconds"])
+	}
+}
+
+func TestParseActionConfigAcceptsNumericInterfaceStatuses(t *testing.T) {
+	payload := []byte(`{
+		"action_invocation": {
+			"schema": "serviceradar.northbound_action_invocation.v1",
+			"invocation_id": "inv-2",
+			"action_id": "sample.interface.audit",
+			"targets": [{
+				"kind": "interface",
+				"device_uid": "sr:device-1",
+				"device_ip": "10.0.0.1",
+				"interface_uid": "if-1",
+				"if_name": "Gi1/0/1",
+				"if_admin_status": 1,
+				"if_oper_status": 2
+			}]
+		}
+	}`)
+
+	config, err := ParseActionConfig(payload)
+	if err != nil {
+		t.Fatalf("parse action config: %v", err)
+	}
+
+	target := config.ActionInvocation.Targets[0]
+	if target.IfAdminStatus != "up" {
+		t.Fatalf("admin status = %q", target.IfAdminStatus)
+	}
+	if target.IfOperStatus != "down" {
+		t.Fatalf("oper status = %q", target.IfOperStatus)
 	}
 }
 

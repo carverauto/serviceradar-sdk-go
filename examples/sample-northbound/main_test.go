@@ -99,6 +99,94 @@ func TestInterfaceAuditAction(t *testing.T) {
 	}
 }
 
+func TestDeviceLookupDeferredLifecycle(t *testing.T) {
+	launchConfig := mustParseActionConfig(t, `{
+		"action_invocation": {
+			"schema": "serviceradar.northbound_action_invocation.v1",
+			"invocation_id": "inv-device-async",
+			"action_id": "sample.device.lookup",
+			"targets": [{
+				"kind": "device",
+				"device_uid": "sr:device-1",
+				"device_ip": "192.0.2.10"
+			}],
+			"input_values": {
+				"execution_mode": "deferred"
+			}
+		}
+	}`)
+
+	launchResult := handleAction(launchConfig, decodePluginConfig(launchConfig))
+	if launchResult.Status != sdk.ActionStatusDeferred {
+		t.Fatalf("launch status = %s", launchResult.Status)
+	}
+	if launchResult.NextPollDelaySeconds != 1 {
+		t.Fatalf("next poll delay = %d", launchResult.NextPollDelaySeconds)
+	}
+
+	pollConfig := mustParseActionConfig(t, `{
+		"action_invocation": {
+			"schema": "serviceradar.northbound_action_invocation.v1",
+			"phase": "poll",
+			"invocation_id": "inv-device-async",
+			"invocation_target_id": "target-1",
+			"action_id": "sample.device.lookup",
+			"poll_attempt_count": 0,
+			"continuation_state": {
+				"external_task_id": "external-123"
+			},
+			"targets": [{
+				"kind": "device",
+				"device_uid": "sr:device-1",
+				"device_ip": "192.0.2.10"
+			}]
+		}
+	}`)
+
+	pollResult := handleAction(pollConfig, decodePluginConfig(pollConfig))
+	if pollResult.Status != sdk.ActionStatusFetching {
+		t.Fatalf("poll status = %s", pollResult.Status)
+	}
+
+	pollConfig.ActionInvocation.PollAttemptCount = 1
+	finalResult := handleAction(pollConfig, decodePluginConfig(pollConfig))
+	if finalResult.Status != sdk.ActionStatusSucceeded {
+		t.Fatalf("final status = %s", finalResult.Status)
+	}
+	if finalResult.Summary["external_task_id"] != "external-123" {
+		t.Fatalf("external task id = %v", finalResult.Summary["external_task_id"])
+	}
+}
+
+func TestNormalizeActionInvocationConfigConvertsNumericInterfaceStatuses(t *testing.T) {
+	raw := map[string]any{
+		"action_invocation": map[string]any{
+			"targets": []any{
+				map[string]any{
+					"if_admin_status": float64(1),
+					"if_oper_status":  float64(2),
+				},
+			},
+		},
+	}
+
+	normalized := normalizeActionInvocationConfig(raw)
+	target := normalized["action_invocation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+
+	if target["if_admin_status"] != "up" {
+		t.Fatalf("admin status = %v", target["if_admin_status"])
+	}
+	if target["if_oper_status"] != "down" {
+		t.Fatalf("oper status = %v", target["if_oper_status"])
+	}
+	if target["if_admin_status_id"] != 1 {
+		t.Fatalf("admin status id = %v", target["if_admin_status_id"])
+	}
+	if target["if_oper_status_id"] != 2 {
+		t.Fatalf("oper status id = %v", target["if_oper_status_id"])
+	}
+}
+
 func TestUnsupportedAction(t *testing.T) {
 	hostConfig := mustParseActionConfig(t, `{
 		"action_invocation": {
@@ -114,6 +202,33 @@ func TestUnsupportedAction(t *testing.T) {
 	}
 	if result.ErrorClass != "unsupported_action" {
 		t.Fatalf("error class = %q", result.ErrorClass)
+	}
+}
+
+func TestServiceCheckResultUsesPluginResultStatus(t *testing.T) {
+	result := serviceCheckResult(defaultConfig())
+
+	if result.Status != sdk.StatusOK {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if result.Summary != "sample northbound NMS ready" {
+		t.Fatalf("summary = %q", result.Summary)
+	}
+
+	payload, err := result.Serialize()
+	if err != nil {
+		t.Fatalf("serialize result: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if decoded["status"] != string(sdk.StatusOK) {
+		t.Fatalf("status = %v", decoded["status"])
+	}
+	if decoded["summary"] != "sample northbound NMS ready" {
+		t.Fatalf("summary = %v", decoded["summary"])
 	}
 }
 
