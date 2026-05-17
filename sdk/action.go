@@ -1,8 +1,11 @@
 package sdk
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 )
 
 const (
@@ -33,6 +36,10 @@ const (
 	ActionStatusFailed     ActionStatus = "failed"
 	ActionStatusSkipped    ActionStatus = "skipped"
 	ActionStatusSuppressed ActionStatus = "suppressed"
+	ActionStatusDeferred   ActionStatus = "deferred"
+	ActionStatusPolling    ActionStatus = "polling"
+	ActionStatusFetching   ActionStatus = "result_fetching"
+	ActionStatusExpired    ActionStatus = "expired"
 )
 
 // ActionDescriptor describes a northbound action exported from plugin.yaml.
@@ -105,21 +112,26 @@ func (d *ActionDescriptor) WithCredentialRequirements(requirements map[string]an
 
 // ActionInvocation is the host-provided payload for plugin.run_action.
 type ActionInvocation struct {
-	SchemaVersion       string                 `json:"schema"`
-	InvocationID        string                 `json:"invocation_id"`
-	ProviderID          string                 `json:"provider_id,omitempty"`
-	DescriptorID        string                 `json:"descriptor_id,omitempty"`
-	ActionID            string                 `json:"action_id"`
-	ActionVersion       string                 `json:"action_version,omitempty"`
-	DescriptorHash      string                 `json:"descriptor_hash,omitempty"`
-	ResultSchemaVersion string                 `json:"result_schema_version,omitempty"`
-	PluginAssignmentID  string                 `json:"plugin_assignment_id,omitempty"`
-	PluginPackageID     string                 `json:"plugin_package_id,omitempty"`
-	Targets             []ActionTargetSnapshot `json:"targets,omitempty"`
-	InputValues         map[string]any         `json:"input_values,omitempty"`
-	RedactedInputValues map[string]any         `json:"redacted_input_values,omitempty"`
-	RequestedAt         string                 `json:"requested_at,omitempty"`
-	Metadata            map[string]any         `json:"metadata,omitempty"`
+	SchemaVersion         string                 `json:"schema"`
+	Phase                 string                 `json:"phase,omitempty"`
+	InvocationID          string                 `json:"invocation_id"`
+	InvocationTargetID    string                 `json:"invocation_target_id,omitempty"`
+	ProviderID            string                 `json:"provider_id,omitempty"`
+	DescriptorID          string                 `json:"descriptor_id,omitempty"`
+	ActionID              string                 `json:"action_id"`
+	ActionVersion         string                 `json:"action_version,omitempty"`
+	DescriptorHash        string                 `json:"descriptor_hash,omitempty"`
+	ResultSchemaVersion   string                 `json:"result_schema_version,omitempty"`
+	PluginAssignmentID    string                 `json:"plugin_assignment_id,omitempty"`
+	PluginPackageID       string                 `json:"plugin_package_id,omitempty"`
+	Targets               []ActionTargetSnapshot `json:"targets,omitempty"`
+	InputValues           map[string]any         `json:"input_values,omitempty"`
+	RedactedInputValues   map[string]any         `json:"redacted_input_values,omitempty"`
+	ContinuationState     map[string]any         `json:"continuation_state,omitempty"`
+	ExternalCorrelationID string                 `json:"external_correlation_id,omitempty"`
+	PollAttemptCount      int                    `json:"poll_attempt_count,omitempty"`
+	RequestedAt           string                 `json:"requested_at,omitempty"`
+	Metadata              map[string]any         `json:"metadata,omitempty"`
 }
 
 // ActionTargetSnapshot is the immutable device/interface/event target selected at launch time.
@@ -156,6 +168,75 @@ type ActionTargetSnapshot struct {
 	Classifications  []string       `json:"classifications,omitempty"`
 	EventID          string         `json:"event_id,omitempty"`
 	Attributes       map[string]any `json:"attributes,omitempty"`
+}
+
+func (t *ActionTargetSnapshot) UnmarshalJSON(data []byte) error {
+	type actionTargetSnapshot ActionTargetSnapshot
+
+	var decoded struct {
+		actionTargetSnapshot
+		IfAdminStatus json.RawMessage `json:"if_admin_status"`
+		IfOperStatus  json.RawMessage `json:"if_oper_status"`
+	}
+
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	*t = ActionTargetSnapshot(decoded.actionTargetSnapshot)
+
+	if len(decoded.IfAdminStatus) > 0 {
+		status, err := decodeInterfaceStatus(decoded.IfAdminStatus)
+		if err != nil {
+			return fmt.Errorf("if_admin_status: %w", err)
+		}
+		t.IfAdminStatus = status
+	}
+
+	if len(decoded.IfOperStatus) > 0 {
+		status, err := decodeInterfaceStatus(decoded.IfOperStatus)
+		if err != nil {
+			return fmt.Errorf("if_oper_status: %w", err)
+		}
+		t.IfOperStatus = status
+	}
+
+	return nil
+}
+
+func decodeInterfaceStatus(raw json.RawMessage) (string, error) {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return "", err
+	}
+
+	switch typed := value.(type) {
+	case nil:
+		return "", nil
+	case string:
+		return normalizeInterfaceStatus(typed), nil
+	case json.Number:
+		return normalizeInterfaceStatus(typed.String()), nil
+	default:
+		return "", fmt.Errorf("expected string, number, or null, got %T", value)
+	}
+}
+
+func normalizeInterfaceStatus(value string) string {
+	trimmed := strings.TrimSpace(value)
+
+	switch strings.ToLower(trimmed) {
+	case "1":
+		return "up"
+	case "2":
+		return "down"
+	case "3":
+		return "testing"
+	default:
+		return trimmed
+	}
 }
 
 func (t ActionTargetSnapshot) Address() string {
@@ -227,6 +308,11 @@ type ActionResult struct {
 	Status                ActionStatus         `json:"status"`
 	Summary               map[string]any       `json:"summary,omitempty"`
 	ExternalCorrelationID string               `json:"external_correlation_id,omitempty"`
+	ContinuationState     map[string]any       `json:"continuation_state,omitempty"`
+	NextPollAt            string               `json:"next_poll_at,omitempty"`
+	NextPollDelaySeconds  int                  `json:"next_poll_delay_seconds,omitempty"`
+	PollDeadlineAt        string               `json:"poll_deadline_at,omitempty"`
+	MaxDurationSeconds    int                  `json:"max_duration_seconds,omitempty"`
 	Targets               []ActionTargetResult `json:"targets,omitempty"`
 	ErrorClass            string               `json:"error_class,omitempty"`
 	ErrorMessage          string               `json:"error_message,omitempty"`
@@ -239,6 +325,11 @@ type ActionTargetResult struct {
 	Status                ActionStatus   `json:"status"`
 	Result                map[string]any `json:"result,omitempty"`
 	ExternalCorrelationID string         `json:"external_correlation_id,omitempty"`
+	ContinuationState     map[string]any `json:"continuation_state,omitempty"`
+	NextPollAt            string         `json:"next_poll_at,omitempty"`
+	NextPollDelaySeconds  int            `json:"next_poll_delay_seconds,omitempty"`
+	PollDeadlineAt        string         `json:"poll_deadline_at,omitempty"`
+	MaxDurationSeconds    int            `json:"max_duration_seconds,omitempty"`
 }
 
 func NewActionResult(status ActionStatus) *ActionResult {
@@ -251,6 +342,18 @@ func ActionSucceeded(message string) *ActionResult {
 
 func ActionFailed(class, message string) *ActionResult {
 	return NewActionResult(ActionStatusFailed).WithError(class, message)
+}
+
+func ActionDeferred(message string) *ActionResult {
+	return NewActionResult(ActionStatusDeferred).WithSummary("message", message)
+}
+
+func ActionPolling(message string) *ActionResult {
+	return NewActionResult(ActionStatusPolling).WithSummary("message", message)
+}
+
+func ActionResultFetching(message string) *ActionResult {
+	return NewActionResult(ActionStatusFetching).WithSummary("message", message)
 }
 
 func (r *ActionResult) WithSummary(key string, value any) *ActionResult {
@@ -266,6 +369,31 @@ func (r *ActionResult) WithSummary(key string, value any) *ActionResult {
 
 func (r *ActionResult) WithCorrelationID(id string) *ActionResult {
 	r.ExternalCorrelationID = id
+	return r
+}
+
+func (r *ActionResult) WithContinuationState(state map[string]any) *ActionResult {
+	r.ContinuationState = state
+	return r
+}
+
+func (r *ActionResult) WithNextPollDelay(seconds int) *ActionResult {
+	r.NextPollDelaySeconds = seconds
+	return r
+}
+
+func (r *ActionResult) WithNextPollAt(timestamp string) *ActionResult {
+	r.NextPollAt = timestamp
+	return r
+}
+
+func (r *ActionResult) WithPollDeadlineAt(timestamp string) *ActionResult {
+	r.PollDeadlineAt = timestamp
+	return r
+}
+
+func (r *ActionResult) WithMaxDuration(seconds int) *ActionResult {
+	r.MaxDurationSeconds = seconds
 	return r
 }
 
