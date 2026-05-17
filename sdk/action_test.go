@@ -50,6 +50,14 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 			"action_id": "hpna.disable_port",
 			"targets": [{
 				"kind": "interface",
+				"northbound_job_id": "job-1",
+				"callback": {
+					"job_id": "job-1",
+					"path": "/api/northbound/action-callbacks/job-1",
+					"url": "https://service.example/api/northbound/action-callbacks/job-1",
+					"token": "callback-token",
+					"token_header": "x-serviceradar-callback-token"
+				},
 				"device_uid": "sr:device-1",
 				"device_ip": "10.0.0.1",
 				"interface_uid": "if-1",
@@ -88,6 +96,12 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 	if config.ActionInvocation.Targets[0].Address() != "10.0.0.1" {
 		t.Fatalf("unexpected target address: %s", config.ActionInvocation.Targets[0].Address())
 	}
+	if config.ActionInvocation.Targets[0].NorthboundJobID != "job-1" {
+		t.Fatalf("unexpected northbound job id: %s", config.ActionInvocation.Targets[0].NorthboundJobID)
+	}
+	if config.ActionInvocation.Targets[0].Callback.URL == "" {
+		t.Fatalf("expected callback URL")
+	}
 
 	var pluginConfig struct {
 		APIURL string `json:"api_url"`
@@ -104,6 +118,7 @@ func TestDeferredActionResultSerializesPollFields(t *testing.T) {
 	payload, err := ActionDeferred("external task accepted").
 		WithCorrelationID("job-123").
 		WithContinuationState(map[string]any{"external_task_id": "job-123"}).
+		WithWebhookCallback().
 		WithNextPollDelay(15).
 		WithMaxDuration(300).
 		WithTargetResult(ActionTargetResult{
@@ -113,6 +128,7 @@ func TestDeferredActionResultSerializesPollFields(t *testing.T) {
 			ContinuationState:     map[string]any{"external_task_id": "job-123"},
 			NextPollDelaySeconds:  15,
 			MaxDurationSeconds:    300,
+			PollMode:              ActionPollModeWebhook,
 			Result: map[string]any{
 				"message": "queued in external system",
 			},
@@ -135,6 +151,9 @@ func TestDeferredActionResultSerializesPollFields(t *testing.T) {
 	}
 	if decoded["max_duration_seconds"] != float64(300) {
 		t.Fatalf("max duration = %v", decoded["max_duration_seconds"])
+	}
+	if decoded["poll_mode"] != string(ActionPollModeWebhook) {
+		t.Fatalf("poll mode = %v", decoded["poll_mode"])
 	}
 }
 
@@ -228,6 +247,9 @@ func TestActionFixturesDecode(t *testing.T) {
 	}
 	if config.ActionInvocation.Targets[0].InterfaceUID != "if-1" {
 		t.Fatalf("unexpected fixture target: %s", config.ActionInvocation.Targets[0].InterfaceUID)
+	}
+	if config.ActionInvocation.Targets[0].Callback.JobID == "" {
+		t.Fatalf("expected fixture callback job id")
 	}
 
 	pollRequestBytes, err := os.ReadFile("../fixtures/northbound_action_poll_request.json")

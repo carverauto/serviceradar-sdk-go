@@ -42,6 +42,21 @@ const (
 	ActionStatusExpired    ActionStatus = "expired"
 )
 
+type ActionPollMode string
+
+const (
+	ActionPollModePoll    ActionPollMode = "poll"
+	ActionPollModeWebhook ActionPollMode = "webhook"
+)
+
+type ActionCallback struct {
+	JobID       string `json:"job_id,omitempty"`
+	Path        string `json:"path,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Token       string `json:"token,omitempty"`
+	TokenHeader string `json:"token_header,omitempty"`
+}
+
 // ActionDescriptor describes a northbound action exported from plugin.yaml.
 type ActionDescriptor struct {
 	ActionID               string         `json:"action_id"`
@@ -137,6 +152,8 @@ type ActionInvocation struct {
 // ActionTargetSnapshot is the immutable device/interface/event target selected at launch time.
 type ActionTargetSnapshot struct {
 	Kind             string         `json:"kind"`
+	NorthboundJobID  string         `json:"northbound_job_id,omitempty"`
+	Callback         ActionCallback `json:"callback,omitempty"`
 	DeviceUID        string         `json:"device_uid,omitempty"`
 	DeviceName       string         `json:"device_name,omitempty"`
 	Name             string         `json:"name,omitempty"`
@@ -309,6 +326,7 @@ type ActionResult struct {
 	Summary               map[string]any       `json:"summary,omitempty"`
 	ExternalCorrelationID string               `json:"external_correlation_id,omitempty"`
 	ContinuationState     map[string]any       `json:"continuation_state,omitempty"`
+	PollMode              ActionPollMode       `json:"poll_mode,omitempty"`
 	NextPollAt            string               `json:"next_poll_at,omitempty"`
 	NextPollDelaySeconds  int                  `json:"next_poll_delay_seconds,omitempty"`
 	PollDeadlineAt        string               `json:"poll_deadline_at,omitempty"`
@@ -326,6 +344,7 @@ type ActionTargetResult struct {
 	Result                map[string]any `json:"result,omitempty"`
 	ExternalCorrelationID string         `json:"external_correlation_id,omitempty"`
 	ContinuationState     map[string]any `json:"continuation_state,omitempty"`
+	PollMode              ActionPollMode `json:"poll_mode,omitempty"`
 	NextPollAt            string         `json:"next_poll_at,omitempty"`
 	NextPollDelaySeconds  int            `json:"next_poll_delay_seconds,omitempty"`
 	PollDeadlineAt        string         `json:"poll_deadline_at,omitempty"`
@@ -375,6 +394,15 @@ func (r *ActionResult) WithCorrelationID(id string) *ActionResult {
 func (r *ActionResult) WithContinuationState(state map[string]any) *ActionResult {
 	r.ContinuationState = state
 	return r
+}
+
+func (r *ActionResult) WithPollMode(mode ActionPollMode) *ActionResult {
+	r.PollMode = mode
+	return r
+}
+
+func (r *ActionResult) WithWebhookCallback() *ActionResult {
+	return r.WithPollMode(ActionPollModeWebhook)
 }
 
 func (r *ActionResult) WithNextPollDelay(seconds int) *ActionResult {
