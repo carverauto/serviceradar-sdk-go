@@ -230,6 +230,24 @@ func TestActionFixturesDecode(t *testing.T) {
 		t.Fatalf("unexpected fixture target: %s", config.ActionInvocation.Targets[0].InterfaceUID)
 	}
 
+	pollRequestBytes, err := os.ReadFile("../fixtures/northbound_action_poll_request.json")
+	if err != nil {
+		t.Fatalf("read poll request fixture: %v", err)
+	}
+	pollConfigBytes := append([]byte(`{"timeout":"30s","action_invocation":`), pollRequestBytes...)
+	pollConfigBytes = append(pollConfigBytes, '}')
+
+	pollConfig, err := ParseActionConfig(pollConfigBytes)
+	if err != nil {
+		t.Fatalf("decode poll request fixture: %v", err)
+	}
+	if pollConfig.ActionInvocation.Phase != "poll" {
+		t.Fatalf("unexpected poll phase: %s", pollConfig.ActionInvocation.Phase)
+	}
+	if pollConfig.ActionInvocation.ContinuationState["external_task_id"] != "hpna-job-123" {
+		t.Fatalf("unexpected continuation state: %v", pollConfig.ActionInvocation.ContinuationState)
+	}
+
 	resultBytes, err := os.ReadFile("../fixtures/northbound_action_result.json")
 	if err != nil {
 		t.Fatalf("read result fixture: %v", err)
@@ -240,5 +258,32 @@ func TestActionFixturesDecode(t *testing.T) {
 	}
 	if result.Status != ActionStatusSucceeded {
 		t.Fatalf("unexpected result status: %s", result.Status)
+	}
+
+	deferredBytes, err := os.ReadFile("../fixtures/northbound_action_deferred_result.json")
+	if err != nil {
+		t.Fatalf("read deferred result fixture: %v", err)
+	}
+	var deferred ActionResult
+	if err := json.Unmarshal(deferredBytes, &deferred); err != nil {
+		t.Fatalf("decode deferred result fixture: %v", err)
+	}
+	if deferred.Status != ActionStatusDeferred {
+		t.Fatalf("unexpected deferred status: %s", deferred.Status)
+	}
+	if deferred.Targets[0].NextPollDelaySeconds != 15 {
+		t.Fatalf("unexpected deferred next poll delay: %d", deferred.Targets[0].NextPollDelaySeconds)
+	}
+
+	pollingBytes, err := os.ReadFile("../fixtures/northbound_action_polling_result.json")
+	if err != nil {
+		t.Fatalf("read polling result fixture: %v", err)
+	}
+	var polling ActionResult
+	if err := json.Unmarshal(pollingBytes, &polling); err != nil {
+		t.Fatalf("decode polling result fixture: %v", err)
+	}
+	if polling.Status != ActionStatusFetching {
+		t.Fatalf("unexpected polling status: %s", polling.Status)
 	}
 }
