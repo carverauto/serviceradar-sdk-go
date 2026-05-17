@@ -56,7 +56,15 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 					"path": "/api/northbound/action-callbacks/job-1",
 					"url": "https://service.example/api/northbound/action-callbacks/job-1",
 					"token": "callback-token",
-					"token_header": "x-serviceradar-callback-token"
+					"token_header": "x-serviceradar-callback-token",
+					"auth_mode": "hmac_required",
+					"signature_algorithm": "hmac-sha256",
+					"signature_header": "x-serviceradar-callback-signature",
+					"timestamp_header": "x-serviceradar-callback-timestamp",
+					"signature_format": "sha256=<hex>",
+					"signed_payload": "<timestamp>.<raw_body>",
+					"timestamp_tolerance_seconds": 300,
+					"signing_secret": "callback-signing-secret"
 				},
 				"device_uid": "sr:device-1",
 				"device_ip": "10.0.0.1",
@@ -102,6 +110,12 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 	if config.ActionInvocation.Targets[0].Callback.URL == "" {
 		t.Fatalf("expected callback URL")
 	}
+	if config.ActionInvocation.Targets[0].Callback.AuthMode != ActionCallbackAuthHMACRequired {
+		t.Fatalf("unexpected callback auth mode: %s", config.ActionInvocation.Targets[0].Callback.AuthMode)
+	}
+	if config.ActionInvocation.Targets[0].Callback.SignatureHeader != "x-serviceradar-callback-signature" {
+		t.Fatalf("unexpected callback signature header")
+	}
 
 	var pluginConfig struct {
 		APIURL string `json:"api_url"`
@@ -111,6 +125,17 @@ func TestParseActionConfigExtractsInvocationAndPluginConfig(t *testing.T) {
 	}
 	if pluginConfig.APIURL != "https://ncm.example" {
 		t.Fatalf("unexpected plugin config: %s", pluginConfig.APIURL)
+	}
+}
+
+func TestActionCallbackSignsBody(t *testing.T) {
+	callback := ActionCallback{SigningSecret: "secret"}
+	body := []byte(`{"status":"succeeded"}`)
+	got := callback.Sign("1715900000", body)
+	want := "sha256=8ba05ab666dfb810e975ed35a1d9835252219a826f1a97e17f2f985e79dc3dd1"
+
+	if got != want {
+		t.Fatalf("signature = %s", got)
 	}
 }
 

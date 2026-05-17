@@ -2,6 +2,9 @@ package sdk
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,12 +52,40 @@ const (
 	ActionPollModeWebhook ActionPollMode = "webhook"
 )
 
+type ActionCallbackAuthMode string
+
+const (
+	ActionCallbackAuthToken        ActionCallbackAuthMode = "token"
+	ActionCallbackAuthHMACOptional ActionCallbackAuthMode = "hmac_optional"
+	ActionCallbackAuthHMACRequired ActionCallbackAuthMode = "hmac_required"
+)
+
 type ActionCallback struct {
-	JobID       string `json:"job_id,omitempty"`
-	Path        string `json:"path,omitempty"`
-	URL         string `json:"url,omitempty"`
-	Token       string `json:"token,omitempty"`
-	TokenHeader string `json:"token_header,omitempty"`
+	JobID                     string                 `json:"job_id,omitempty"`
+	Path                      string                 `json:"path,omitempty"`
+	URL                       string                 `json:"url,omitempty"`
+	Token                     string                 `json:"token,omitempty"`
+	TokenHeader               string                 `json:"token_header,omitempty"`
+	AuthMode                  ActionCallbackAuthMode `json:"auth_mode,omitempty"`
+	SignatureAlgorithm        string                 `json:"signature_algorithm,omitempty"`
+	SignatureHeader           string                 `json:"signature_header,omitempty"`
+	TimestampHeader           string                 `json:"timestamp_header,omitempty"`
+	SignatureFormat           string                 `json:"signature_format,omitempty"`
+	SignedPayload             string                 `json:"signed_payload,omitempty"`
+	TimestampToleranceSeconds int                    `json:"timestamp_tolerance_seconds,omitempty"`
+	SigningSecret             string                 `json:"signing_secret,omitempty"`
+}
+
+func SignActionCallback(secret, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func (c ActionCallback) Sign(timestamp string, body []byte) string {
+	return SignActionCallback(c.SigningSecret, timestamp, body)
 }
 
 // ActionDescriptor describes a northbound action exported from plugin.yaml.
