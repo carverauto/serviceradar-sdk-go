@@ -62,6 +62,37 @@ type PluginInputItem struct {
 	Item       map[string]any
 }
 
+// CredentialBrokerGrant is a scoped credential broker reference attached to a target.
+type CredentialBrokerGrant struct {
+	GrantID             string         `json:"grant_id"`
+	GrantRef            string         `json:"grant_ref,omitempty"`
+	CredentialSecretRef string         `json:"credential_secret_ref,omitempty"`
+	GrantType           string         `json:"grant_type,omitempty"`
+	Inject              map[string]any `json:"inject,omitempty"`
+	ExpiresAt           string         `json:"expires_at,omitempty"`
+	CacheStatus         string         `json:"cache_status,omitempty"`
+}
+
+// CredentialPolicySnapshot is the redacted credential policy attached to a target item.
+type CredentialPolicySnapshot struct {
+	CredentialBrokers       []CredentialBrokerGrant `json:"credential_brokers,omitempty"`
+	CredentialBrokerGrantID []string                `json:"credential_broker_grant_ids,omitempty"`
+}
+
+// TargetContext is a descriptor-aware check target decoded from a plugin input item.
+type TargetContext struct {
+	UID                 string                   `json:"uid"`
+	CheckInstanceID     string                   `json:"check_instance_id"`
+	CheckKey            string                   `json:"check_key,omitempty"`
+	MonitoringBindingID string                   `json:"monitoring_binding_id,omitempty"`
+	DescriptorID        string                   `json:"descriptor_id"`
+	DescriptorVersion   string                   `json:"descriptor_version"`
+	TargetKind          string                   `json:"target_kind"`
+	Target              map[string]any           `json:"target"`
+	CredentialPolicy    CredentialPolicySnapshot `json:"credential_policy,omitempty"`
+	EventPolicy         map[string]any           `json:"event_policy,omitempty"`
+}
+
 // ParsePluginInputsJSON parses and validates a plugin inputs payload JSON document.
 func ParsePluginInputsJSON(data []byte) (*PluginInputsPayload, error) {
 	var payload PluginInputsPayload
@@ -74,6 +105,87 @@ func ParsePluginInputsJSON(data []byte) (*PluginInputsPayload, error) {
 	}
 
 	return &payload, nil
+}
+
+// TargetContexts decodes descriptor-aware target contexts from all input items.
+func (p *PluginInputsPayload) TargetContexts() ([]TargetContext, error) {
+	items := p.FlattenItems()
+	out := make([]TargetContext, 0, len(items))
+
+	for i, item := range items {
+		ctx, err := item.TargetContext()
+		if err != nil {
+			return nil, fmt.Errorf("decode target context at flattened item %d: %w", i, err)
+		}
+		out = append(out, ctx)
+	}
+
+	return out, nil
+}
+
+// TargetContext decodes this input item as a descriptor-aware check target.
+func (item PluginInputItem) TargetContext() (TargetContext, error) {
+	raw, err := json.Marshal(item.Item)
+	if err != nil {
+		return TargetContext{}, fmt.Errorf("encode target context: %w", err)
+	}
+
+	var ctx TargetContext
+	if err := json.Unmarshal(raw, &ctx); err != nil {
+		return TargetContext{}, fmt.Errorf("decode target context: %w", err)
+	}
+
+	if strings.TrimSpace(ctx.CheckInstanceID) == "" {
+		return TargetContext{}, errors.New("target context missing check_instance_id")
+	}
+	if strings.TrimSpace(ctx.DescriptorID) == "" {
+		return TargetContext{}, errors.New("target context missing descriptor_id")
+	}
+	if ctx.Target == nil {
+		ctx.Target = map[string]any{}
+	}
+
+	return ctx, nil
+}
+
+func (ctx TargetContext) MonitoredServiceID() string {
+	return stringFromMap(ctx.Target, "monitored_service_id")
+}
+
+func (ctx TargetContext) DeviceUID() string {
+	return stringFromMap(ctx.Target, "device_uid")
+}
+
+func (ctx TargetContext) EndpointURL() string {
+	return stringFromMap(ctx.Target, "endpoint_url")
+}
+
+func (ctx TargetContext) Host() string {
+	return stringFromMap(ctx.Target, "host")
+}
+
+func (ctx TargetContext) Path() string {
+	return stringFromMap(ctx.Target, "path")
+}
+
+func (ctx TargetContext) Port() int {
+	switch value := ctx.Target["port"].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return int(parsed)
+	default:
+		return 0
+	}
+}
+
+func (ctx TargetContext) CredentialGrants() []CredentialBrokerGrant {
+	return append([]CredentialBrokerGrant(nil), ctx.CredentialPolicy.CredentialBrokers...)
 }
 
 // ParsePluginInputsMap parses and validates a plugin inputs payload object.
@@ -203,4 +315,20 @@ func (p *PluginInputsPayload) ItemsByName(name string) []PluginInputItem {
 		}
 	}
 	return out
+}
+
+func stringFromMap(m map[string]any, key string) string {
+	value, ok := m[key]
+	if !ok {
+		return ""
+	}
+
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		return fmt.Sprint(typed)
+	}
 }

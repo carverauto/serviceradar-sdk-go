@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -154,5 +155,101 @@ func TestPluginInputsPayload_EachItemStopsOnError(t *testing.T) {
 	}
 	if seen != 2 {
 		t.Fatalf("expected to visit 2 items, visited %d", seen)
+	}
+}
+
+func TestPluginInputsPayload_TargetContexts(t *testing.T) {
+	raw := []byte(`{
+		"schema":"serviceradar.plugin_inputs.v1",
+		"policy_id":"monitoring_binding:binding-1",
+		"policy_version":1,
+		"agent_id":"agent-a",
+		"generated_at":"2026-05-21T23:00:00Z",
+		"inputs":[{
+			"name":"monitoring_binding:binding-1",
+			"entity":"monitoring_checks",
+			"query":"monitoring_binding_id=binding-1",
+			"chunk_index":0,
+			"chunk_total":1,
+			"chunk_hash":"abc",
+			"items":[{
+				"uid":"check-1",
+				"check_instance_id":"check-1",
+				"monitoring_binding_id":"binding-1",
+				"descriptor_id":"http.url.availability",
+				"descriptor_version":"1.0.0",
+				"target_kind":"service",
+				"target":{
+					"monitored_service_id":"service-1",
+					"endpoint_url":"https://example.test/health",
+					"host":"example.test",
+					"port":443,
+					"path":"/health",
+					"device_uid":"sr:device-1"
+				},
+				"credential_policy":{
+					"credential_brokers":[{
+						"grant_id":"grant-1",
+						"credential_secret_ref":"credentialref:network-credential-secret:secret-1",
+						"grant_type":"http_auth"
+					}]
+				}
+			}]
+		}]
+	}`)
+
+	payload, err := ParsePluginInputsJSON(raw)
+	if err != nil {
+		t.Fatalf("parse target payload: %v", err)
+	}
+
+	contexts, err := payload.TargetContexts()
+	if err != nil {
+		t.Fatalf("target contexts: %v", err)
+	}
+
+	if len(contexts) != 1 {
+		t.Fatalf("expected 1 context, got %d", len(contexts))
+	}
+
+	ctx := contexts[0]
+	if ctx.CheckInstanceID != "check-1" {
+		t.Fatalf("unexpected check instance: %s", ctx.CheckInstanceID)
+	}
+	if ctx.MonitoredServiceID() != "service-1" {
+		t.Fatalf("unexpected monitored service: %s", ctx.MonitoredServiceID())
+	}
+	if ctx.DeviceUID() != "sr:device-1" {
+		t.Fatalf("unexpected device uid: %s", ctx.DeviceUID())
+	}
+	if ctx.EndpointURL() != "https://example.test/health" {
+		t.Fatalf("unexpected endpoint url: %s", ctx.EndpointURL())
+	}
+	if ctx.Port() != 443 {
+		t.Fatalf("unexpected port: %d", ctx.Port())
+	}
+	if len(ctx.CredentialGrants()) != 1 || ctx.CredentialGrants()[0].GrantID != "grant-1" {
+		t.Fatalf("expected credential grant")
+	}
+}
+
+func TestServiceMonitoringInputFixture(t *testing.T) {
+	raw, err := os.ReadFile("../testdata/service_monitoring_input.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	payload, err := ParsePluginInputsJSON(raw)
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+
+	contexts, err := payload.TargetContexts()
+	if err != nil {
+		t.Fatalf("decode fixture target contexts: %v", err)
+	}
+
+	if len(contexts) != 1 || contexts[0].CheckInstanceID != "check-1" {
+		t.Fatalf("unexpected fixture contexts: %#v", contexts)
 	}
 }
