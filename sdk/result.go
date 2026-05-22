@@ -29,18 +29,21 @@ const (
 
 // Result is the serviceradar.plugin_result.v1 payload.
 type Result struct {
-	Status        Status            `json:"status"`
-	Summary       string            `json:"summary"`
-	Details       string            `json:"details,omitempty"`
-	Perfdata      string            `json:"perfdata,omitempty"`
-	Metrics       []Metric          `json:"metrics,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
-	ObservedAt    string            `json:"observed_at,omitempty"`
-	SchemaVersion int               `json:"schema_version,omitempty"`
-	Display       []DisplayWidget   `json:"display,omitempty"`
-	Events        []OCSFEvent       `json:"events,omitempty"`
-	AlertHint     bool              `json:"alert_hint,omitempty"`
-	ConditionID   string            `json:"condition_id,omitempty"`
+	Status             Status            `json:"status"`
+	Summary            string            `json:"summary"`
+	Details            string            `json:"details,omitempty"`
+	Perfdata           string            `json:"perfdata,omitempty"`
+	Metrics            []Metric          `json:"metrics,omitempty"`
+	Labels             map[string]string `json:"labels,omitempty"`
+	ObservedAt         string            `json:"observed_at,omitempty"`
+	SchemaVersion      int               `json:"schema_version,omitempty"`
+	Display            []DisplayWidget   `json:"display,omitempty"`
+	Events             []OCSFEvent       `json:"events,omitempty"`
+	AlertHint          bool              `json:"alert_hint,omitempty"`
+	ConditionID        string            `json:"condition_id,omitempty"`
+	CheckInstanceID    string            `json:"check_instance_id,omitempty"`
+	MonitoredServiceID string            `json:"monitored_service_id,omitempty"`
+	DeviceUID          string            `json:"device_uid,omitempty"`
 }
 
 // Metric is a structured metric entry.
@@ -167,6 +170,11 @@ func Unknown(summary string) *Result {
 	return res
 }
 
+// TargetResult returns a result scoped to a descriptor-aware target context.
+func TargetResult(ctx TargetContext, status Status, summary string) *Result {
+	return NewResult().ForTarget(ctx).WithStatus(status).WithSummary(summary)
+}
+
 func (r *Result) SetStatus(status Status)      { r.Status = status }
 func (r *Result) SetSummary(summary string)    { r.Summary = summary }
 func (r *Result) SetDetails(details string)    { r.Details = details }
@@ -195,6 +203,26 @@ func (r *Result) WithPerfdata(perfdata string) *Result {
 
 func (r *Result) WithSchemaVersion(version int) *Result {
 	r.SetSchemaVersion(version)
+	return r
+}
+
+func (r *Result) ForTarget(ctx TargetContext) *Result {
+	if r == nil {
+		return r
+	}
+
+	r.CheckInstanceID = ctx.CheckInstanceID
+	r.MonitoredServiceID = ctx.MonitoredServiceID()
+	r.DeviceUID = ctx.DeviceUID()
+	r.AddLabel("check_instance_id", ctx.CheckInstanceID)
+
+	if ctx.DescriptorID != "" {
+		r.AddLabel("descriptor_id", ctx.DescriptorID)
+	}
+	if ctx.UID != "" {
+		r.AddLabel("target_uid", ctx.UID)
+	}
+
 	return r
 }
 
