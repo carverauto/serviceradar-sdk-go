@@ -10,6 +10,7 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - HTTP/TCP/UDP proxy wrappers
 - Support for Websockets
 - Event emission + alert promotion hints
+- Signal schema/display contract references for package-managed logs and events
 
 ## Install
 
@@ -114,6 +115,26 @@ thresholds := sdk.Thresholds(50, 100)
 res.WithMetric("latency_ms", 10, "ms", thresholds)
 res.WithThresholds(10, thresholds.Warn, thresholds.Crit)
 ```
+
+### Signal display contracts
+When a plugin emits OCSF events or OTEL-style logs that are described by a package manifest, attach the package schema/display reference through the SDK:
+
+```go
+event := sdk.NewOCSFEventLogActivity("camera motion", sdk.SeverityWarning)
+sdk.AttachSignalSchemaRef(&event, sdk.SignalSchemaRef{
+    ProducerID:             "axis-camera",
+    ProducerVersion:        "0.1.0",
+    SchemaID:               "com.carverauto.axis_camera.event_log",
+    SchemaVersion:          "1.0.0",
+    DisplayContractID:      "com.carverauto.axis_camera.event_log.display",
+    DisplayContractVersion: "1.0.0",
+    DisplayContract:        "display/event_log_activity.display.json",
+    SignalType:             sdk.SignalSchemaSignalTypeEvent,
+    PayloadKind:            sdk.SignalSchemaPayloadKindOCSFEvent,
+})
+```
+
+The helper writes the ServiceRadar extension metadata under `metadata.service_radar.signal_schema`.
 
 ### Context-aware I/O
 Context variants exist for host I/O to match Go expectations:
