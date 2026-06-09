@@ -39,6 +39,7 @@ type Result struct {
 	SchemaVersion      int               `json:"schema_version,omitempty"`
 	Display            []DisplayWidget   `json:"display,omitempty"`
 	Events             []OCSFEvent       `json:"events,omitempty"`
+	DeviceDiscovery    []DeviceDiscovery `json:"device_discovery,omitempty"`
 	AlertHint          bool              `json:"alert_hint,omitempty"`
 	ConditionID        string            `json:"condition_id,omitempty"`
 	CheckInstanceID    string            `json:"check_instance_id,omitempty"`

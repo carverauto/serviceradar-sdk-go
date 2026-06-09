@@ -9,6 +9,7 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Logging bridge
 - HTTP/TCP/UDP proxy wrappers
 - Support for Websockets
+- Device discovery envelopes for inventory-producing plugins
 - Event emission + alert promotion hints
 - Signal schema/display contract references for package-managed logs and events
 
