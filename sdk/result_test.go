@@ -60,22 +60,22 @@ func TestSerializeIncludesMetrics(t *testing.T) {
 func TestSerializeIncludesDeviceDiscovery(t *testing.T) {
 	available := true
 
-	discovery := NewDeviceDiscovery("proxmox-inventory").
+	discovery := NewDeviceDiscovery("ual-network-map").
 		WithDevice(DiscoveredDevice{
-			Hostname:    "pve-a",
+			Hostname:    "NIAHAP-MDF001-WAP001",
 			MAC:         "b4:5d:50:c7:46:6c",
-			Serial:      "node-serial",
-			VendorName:  "Proxmox",
-			Model:       "Virtual Environment",
-			Type:        "hypervisor",
-			Role:        "node",
+			Serial:      "CNC3HN77NW",
+			VendorName:  "Aruba",
+			Model:       "325",
+			Type:        "access_point",
+			Role:        "ap_bridge",
 			IsAvailable: &available,
 			Location: &DeviceLocation{
-				SiteCode: "LAB",
-				SiteName: "Lab",
+				SiteCode: "IAH",
+				SiteName: "George Bush Intercontinental Airport",
 			},
 			Metadata: map[string]any{
-				"integration_id": "proxmox:node:pve-a",
+				"integration_id": "wifi_map:access_point:CNC3HN77NW",
 			},
 		})
 
@@ -105,7 +105,7 @@ func TestSerializeIncludesDeviceDiscovery(t *testing.T) {
 
 	devices := envelope["devices"].([]any)
 	device := devices[0].(map[string]any)
-	if device["hostname"] != "pve-a" {
+	if device["hostname"] != "NIAHAP-MDF001-WAP001" {
 		t.Fatalf("unexpected hostname: %v", device["hostname"])
 	}
 }
