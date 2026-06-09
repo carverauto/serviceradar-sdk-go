@@ -178,3 +178,42 @@ func TestServiceMonitoringResultFixture(t *testing.T) {
 		t.Fatalf("expected monitored_service_id in fixture")
 	}
 }
+
+func TestAttachSignalSchemaRef(t *testing.T) {
+	event := NewOCSFEventLogActivity("camera event", SeverityWarning)
+
+	AttachSignalSchemaRef(&event, SignalSchemaRef{
+		ProducerID:             "axis-camera",
+		ProducerVersion:        "0.1.0",
+		SchemaID:               "com.carverauto.axis_camera.event_log",
+		SchemaVersion:          "1.0.0",
+		DisplayContractID:      "com.carverauto.axis_camera.event_log.display",
+		DisplayContractVersion: "1.0.0",
+		DisplayContract:        "display/event_log_activity.display.json",
+		SignalType:             SignalSchemaSignalTypeEvent,
+		PayloadKind:            SignalSchemaPayloadKindOCSFEvent,
+	})
+
+	serviceRadar, ok := event.Metadata[SignalSchemaMetadataServiceRadar].(map[string]any)
+	if !ok {
+		t.Fatalf("expected service_radar metadata, got %#v", event.Metadata[SignalSchemaMetadataServiceRadar])
+	}
+
+	ref, ok := serviceRadar[SignalSchemaMetadataSignalSchema].(map[string]any)
+	if !ok {
+		t.Fatalf("expected signal_schema metadata, got %#v", serviceRadar[SignalSchemaMetadataSignalSchema])
+	}
+
+	if got := ref[SignalSchemaMetadataSchemaID]; got != "com.carverauto.axis_camera.event_log" {
+		t.Fatalf("schema id = %#v", got)
+	}
+	if got := ref[SignalSchemaMetadataDisplayContract]; got != "display/event_log_activity.display.json" {
+		t.Fatalf("display contract = %#v", got)
+	}
+}
+
+func TestAttachSignalSchemaRefHandlesNilEvent(t *testing.T) {
+	if got := AttachSignalSchemaRef(nil, SignalSchemaRef{SchemaID: "x"}); got != nil {
+		t.Fatalf("expected nil event, got %#v", got)
+	}
+}
