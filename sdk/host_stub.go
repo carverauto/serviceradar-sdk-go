@@ -12,6 +12,10 @@ func hostSubmitResult(_ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }
 
+func hostEmitTelemetry(_ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
 func hostHTTPRequest(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }
