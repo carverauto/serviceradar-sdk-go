@@ -1,3 +1,3 @@
-module git.carverauto.dev/carverauto/serviceradar-sdk-go
+module code.carverauto.dev/carverauto/serviceradar-sdk-go
 
 go 1.25
