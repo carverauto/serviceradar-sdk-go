@@ -9,7 +9,9 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Logging bridge
 - HTTP/TCP/UDP proxy wrappers
 - Support for Websockets
+- Device discovery envelopes for inventory-producing plugins
 - Event emission + alert promotion hints
+- Signal schema/display contract references for package-managed logs and events
 
 ## Install
 
@@ -114,6 +116,55 @@ thresholds := sdk.Thresholds(50, 100)
 res.WithMetric("latency_ms", 10, "ms", thresholds)
 res.WithThresholds(10, thresholds.Warn, thresholds.Crit)
 ```
+
+### Signal display contracts
+When a plugin emits OCSF events or OTEL-style logs that are described by a package manifest, attach the package schema/display reference through the SDK:
+
+```go
+event := sdk.NewOCSFEventLogActivity("camera motion", sdk.SeverityWarning)
+sdk.AttachSignalSchemaRef(&event, sdk.SignalSchemaRef{
+    ProducerID:             "axis-camera",
+    ProducerVersion:        "0.1.0",
+    SchemaID:               "com.carverauto.axis_camera.event_log",
+    SchemaVersion:          "1.0.0",
+    DisplayContractID:      "com.carverauto.axis_camera.event_log.display",
+    DisplayContractVersion: "1.0.0",
+    DisplayContract:        "display/event_log_activity.display.json",
+    SignalType:             sdk.SignalSchemaSignalTypeEvent,
+    PayloadKind:            sdk.SignalSchemaPayloadKindOCSFEvent,
+})
+```
+
+The helper writes the ServiceRadar extension metadata under `metadata.service_radar.signal_schema`.
+
+For first-class telemetry that should be ingested independently of the check result,
+declare the `emit_telemetry` capability and send a telemetry batch:
+
+```go
+event := sdk.NewOCSFEventLogActivity("camera motion", sdk.SeverityWarning)
+record := sdk.NewOCSFTelemetryRecord(event).WithSignalSchemaRef(sdk.SignalSchemaRef{
+    ProducerID:             "axis-camera",
+    ProducerVersion:        "0.1.0",
+    SchemaID:               "com.carverauto.axis_camera.event_log",
+    SchemaVersion:          "1.0.0",
+    DisplayContractID:      "com.carverauto.axis_camera.event_log.display",
+    DisplayContractVersion: "1.0.0",
+    DisplayContract:        "display/event_log_activity.display.json",
+    SignalType:             sdk.SignalSchemaSignalTypeEvent,
+    PayloadKind:            sdk.SignalSchemaPayloadKindOCSFEvent,
+})
+
+err := sdk.EmitTelemetry(sdk.TelemetryBatch{
+    Source: sdk.TelemetrySource{
+        SourceType:     "axis-camera",
+        SourceInstance: "front-door",
+    },
+    Records: []sdk.TelemetryRecord{record},
+})
+```
+
+Use result-attached `events` for check-scoped annotations. Use `EmitTelemetry` for
+standalone or streaming plugin logs/events.
 
 ### Context-aware I/O
 Context variants exist for host I/O to match Go expectations:
@@ -226,6 +277,7 @@ The agent imports host functions from the `env` module:
 - `get_config`
 - `log`
 - `submit_result`
+- `emit_telemetry`
 - `http_request`
 - `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close`
 - `udp_sendto`

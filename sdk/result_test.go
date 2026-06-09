@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -175,5 +176,97 @@ func TestSerializeDefaultsWithoutMutation(t *testing.T) {
 
 	if decoded["observed_at"] == "" {
 		t.Fatalf("expected observed_at to be set")
+	}
+}
+
+func TestTargetResultSerializesCheckInstanceIdentity(t *testing.T) {
+	ctx := TargetContext{
+		UID:               "check-1",
+		CheckInstanceID:   "check-1",
+		DescriptorID:      "http.url.availability",
+		DescriptorVersion: "1.0.0",
+		TargetKind:        TargetKindService,
+		Target: map[string]any{
+			"monitored_service_id": "service-1",
+			"device_uid":           "sr:device-1",
+		},
+	}
+
+	payload, err := TargetResult(ctx, StatusOK, "HTTP 200").Serialize()
+	if err != nil {
+		t.Fatalf("serialize target result: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal target result: %v", err)
+	}
+
+	if decoded["check_instance_id"] != "check-1" {
+		t.Fatalf("expected check_instance_id, got %v", decoded["check_instance_id"])
+	}
+	if decoded["monitored_service_id"] != "service-1" {
+		t.Fatalf("expected monitored_service_id, got %v", decoded["monitored_service_id"])
+	}
+	if decoded["device_uid"] != "sr:device-1" {
+		t.Fatalf("expected device_uid, got %v", decoded["device_uid"])
+	}
+}
+
+func TestServiceMonitoringResultFixture(t *testing.T) {
+	raw, err := os.ReadFile("../testdata/service_monitoring_result.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+
+	if decoded["check_instance_id"] != "check-1" {
+		t.Fatalf("expected check_instance_id in fixture")
+	}
+	if decoded["monitored_service_id"] != "service-1" {
+		t.Fatalf("expected monitored_service_id in fixture")
+	}
+}
+
+func TestAttachSignalSchemaRef(t *testing.T) {
+	event := NewOCSFEventLogActivity("camera event", SeverityWarning)
+
+	AttachSignalSchemaRef(&event, SignalSchemaRef{
+		ProducerID:             "axis-camera",
+		ProducerVersion:        "0.1.0",
+		SchemaID:               "com.carverauto.axis_camera.event_log",
+		SchemaVersion:          "1.0.0",
+		DisplayContractID:      "com.carverauto.axis_camera.event_log.display",
+		DisplayContractVersion: "1.0.0",
+		DisplayContract:        "display/event_log_activity.display.json",
+		SignalType:             SignalSchemaSignalTypeEvent,
+		PayloadKind:            SignalSchemaPayloadKindOCSFEvent,
+	})
+
+	serviceRadar, ok := event.Metadata[SignalSchemaMetadataServiceRadar].(map[string]any)
+	if !ok {
+		t.Fatalf("expected service_radar metadata, got %#v", event.Metadata[SignalSchemaMetadataServiceRadar])
+	}
+
+	ref, ok := serviceRadar[SignalSchemaMetadataSignalSchema].(map[string]any)
+	if !ok {
+		t.Fatalf("expected signal_schema metadata, got %#v", serviceRadar[SignalSchemaMetadataSignalSchema])
+	}
+
+	if got := ref[SignalSchemaMetadataSchemaID]; got != "com.carverauto.axis_camera.event_log" {
+		t.Fatalf("schema id = %#v", got)
+	}
+	if got := ref[SignalSchemaMetadataDisplayContract]; got != "display/event_log_activity.display.json" {
+		t.Fatalf("display contract = %#v", got)
+	}
+}
+
+func TestAttachSignalSchemaRefHandlesNilEvent(t *testing.T) {
+	if got := AttachSignalSchemaRef(nil, SignalSchemaRef{SchemaID: "x"}); got != nil {
+		t.Fatalf("expected nil event, got %#v", got)
 	}
 }

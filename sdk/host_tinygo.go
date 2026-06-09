@@ -11,6 +11,9 @@ func hostLog(level uint32, ptr uint32, size uint32)
 //go:wasmimport env submit_result
 func hostSubmitResult(ptr uint32, size uint32) int32
 
+//go:wasmimport env emit_telemetry
+func hostEmitTelemetry(ptr uint32, size uint32) int32
+
 //go:wasmimport env http_request
 func hostHTTPRequest(reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint32) int32
 
