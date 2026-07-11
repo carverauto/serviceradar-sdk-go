@@ -3,8 +3,6 @@
 package main
 
 import (
-	"fmt"
-
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
@@ -29,34 +27,13 @@ func run_check() {
 			return res, nil
 		}
 
-		latencyMS := float64(resp.Duration.Milliseconds())
-		thresholds := sdk.Thresholds(cfg.WarnMS, cfg.CritMS)
-
-		res := sdk.NewResult()
-
-		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
-		res.ApplyThresholds(latencyMS, thresholds.Warn, thresholds.Crit)
-		res.AddMetric("latency_ms", latencyMS, "ms", thresholds)
-
-		res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latencyMS), toneForStatus(res.Status))
-
-		return res, nil
+		return buildHTTPResult(
+			resp.Status,
+			float64(resp.Duration.Milliseconds()),
+			cfg.WarnMS,
+			cfg.CritMS,
+		), nil
 	})
 }
 
 func main() {}
-
-func toneForStatus(status sdk.Status) string {
-	switch status {
-	case sdk.StatusOK:
-		return "success"
-	case sdk.StatusCritical:
-		return "critical"
-	case sdk.StatusWarning:
-		return "warning"
-	case sdk.StatusUnknown:
-		return "neutral"
-	default:
-		return "success"
-	}
-}
