@@ -16,6 +16,7 @@ const (
 	SignalSchemaSignalTypeLog                  = "log"
 	SignalSchemaPayloadKindOCSFEvent           = "ocsf_event"
 	SignalSchemaPayloadKindOTELLog             = "otel_log"
+	SignalSchemaPayloadKindJSON                = "json"
 )
 
 // SignalSchemaRef identifies the package-managed schema and display contract

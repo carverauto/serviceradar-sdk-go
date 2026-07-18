@@ -166,6 +166,131 @@ err := sdk.EmitTelemetry(sdk.TelemetryBatch{
 Use result-attached `events` for check-scoped annotations. Use `EmitTelemetry` for
 standalone or streaming plugin logs/events.
 
+### Advisory feed batches
+
+Vulnerability and threat-intelligence feed plugins should normalize provider
+data inside the plugin and submit `serviceradar.advisory_feed.contract.v1`
+batches through the normal plugin result path. Core stores and matches the
+generic contract; it does not parse provider-native CISA, NVD, VulnCheck, or
+similar feed formats.
+
+```go
+batch := sdk.NewAdvisoryFeedBatch(
+    "com.example.vuln-feed",
+    sdk.AdvisorySource{
+        Provider:    "example",
+        FeedKey:     "normalized",
+        DisplayName: "Example Advisory Feed",
+        Enabled:     true,
+    },
+    sdk.AdvisorySnapshot{
+        ObjectKey: "vulnerability-feeds/example/latest.json",
+        SHA256:    "<sha256>",
+        Accepted:  true,
+        Status:    "accepted",
+    },
+).WithAdvisory(sdk.AdvisoryRecord{
+    SourceObjectID: "example:CVE-2026-1",
+    AdvisoryID:     "CVE-2026-1",
+    CVEID:          "CVE-2026-1",
+    Severity:       "high",
+    AffectedCoordinates: []sdk.AffectedCoordinate{{
+        Type:           sdk.CoordinateTypePURL,
+        Value:          "pkg:generic/example/pkg@1.0.0",
+        MatchSemantics: "plugin_normalized",
+    }},
+})
+
+return sdk.Ok("accepted advisory batch").WithAdvisoryFeed(batch), nil
+```
+
+Declare `submit_result` and `advisory-feed:v1` in the plugin manifest.
+
+Large archive or pointer feeds do not require native add-ons solely for object
+storage. Plugins that need durable snapshots should also declare
+`artifact-staging:v1` and use the host-brokered artifact stream. The host sends
+object traffic through agent-gateway; plugins and add-ons never talk directly to
+JetStream or the object store.
+
+```go
+stream, err := sdk.OpenArtifactStream(sdk.ArtifactOpenRequest{
+    ObjectKey:   "vulnerability-feeds/example/latest.zip",
+    Type:        "advisory-feed-snapshot",
+    ContentType: "application/zip",
+    SHA256:      "<sha256>",
+})
+if err != nil {
+    return nil, err
+}
+defer stream.Abort("plugin exited before commit")
+
+if err := stream.Write(sdk.ArtifactChunkMetadata{Sequence: 1}, chunk); err != nil {
+    return nil, err
+}
+
+artifact, err := stream.Commit(sdk.ArtifactCommitRequest{
+    SHA256:    "<sha256>",
+    SizeBytes: int64(totalBytes),
+})
+if err != nil {
+    return nil, err
+}
+
+batch.Snapshot.ObjectKey = artifact.ObjectKey
+batch.Snapshot.SHA256 = artifact.SHA256
+batch.Snapshot.SizeBytes = artifact.SizeBytes
+```
+
+### Manifest EventWriter contributions
+
+Packages can declare how emitted telemetry should be routed and normalized by core
+without shipping executable EventWriter code. Use the manifest helpers to keep the
+contract shape and processor IDs aligned with core validation:
+
+```go
+schema := sdk.NewSignalSchemaContribution(
+    "com.carverauto.security.scan_activity",
+    "1.0.0",
+    sdk.SignalSchemaSignalTypeEvent,
+    sdk.SignalSchemaPayloadKindJSON,
+)
+schema.OCSFSchemaVersion = "1.9.0-dev"
+schema.ClassUID = 6007
+schema.TypeUID = 600701
+
+processor := sdk.NewEventWriterContribution(
+    "security_scan_activity",
+    "plugins.security_sample.scan_activity",
+    sdk.ProcessorScanActivity,
+).
+    WithStreamName("events").
+    WithDestination("table", "ocsf_events").
+    WithOCSF("schema_version", "1.9.0-dev").
+    WithOCSF("class_uid", 6007).
+    WithBatch(25, 250)
+
+manifest := sdk.PluginManifest{
+    ID:           "security-sample",
+    Name:         "Security Sample",
+    Version:      "1.0.0",
+    Entrypoint:   "run_check",
+    Runtime:      "wasi-preview1",
+    Capabilities: []string{"get_config", "log", "submit_result", "emit_telemetry"},
+    Resources:    map[string]any{"requested_memory_mb": 32},
+    Outputs:      "serviceradar.plugin_result.v1",
+    SignalSchemas: []sdk.SignalSchemaContribution{
+        schema.WithEventWriter(processor),
+    },
+}
+
+payload, err := manifest.Serialize()
+```
+
+The processor ID must be one of the platform-owned processors, such as
+`sdk.ProcessorOCSFPassthrough`, `sdk.ProcessorOTELLogPassthrough`,
+`sdk.ProcessorJSONToOCSF`, `sdk.ProcessorSecurityFinding`, or
+`sdk.ProcessorScanActivity`.
+
 ### Context-aware I/O
 Context variants exist for host I/O to match Go expectations:
 - HTTP: `HTTP.DoContext`, `HTTP.GetContext`, `HTTP.PostContext`
@@ -283,6 +408,7 @@ The agent imports host functions from the `env` module:
 - `udp_sendto`
 - `websocket_connect` / `websocket_send` / `websocket_recv` / `websocket_close`
 - `camera_media_open` / `camera_media_write` / `camera_media_heartbeat` / `camera_media_close`
+- `artifact_open` / `artifact_write` / `artifact_commit` / `artifact_abort`
 
 The SDK wraps these functions and exports `alloc`/`dealloc` for host memory access.
 

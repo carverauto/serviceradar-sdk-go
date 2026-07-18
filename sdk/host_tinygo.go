@@ -55,3 +55,15 @@ func hostCameraMediaHeartbeat(handle uint32, metaPtr uint32, metaLen uint32) int
 
 //go:wasmimport env camera_media_close
 func hostCameraMediaClose(handle uint32, reasonPtr uint32, reasonLen uint32) int32
+
+//go:wasmimport env artifact_open
+func hostArtifactOpen(reqPtr uint32, reqLen uint32) int32
+
+//go:wasmimport env artifact_write
+func hostArtifactWrite(handle uint32, metaPtr uint32, metaLen uint32, payloadPtr uint32, payloadLen uint32) int32
+
+//go:wasmimport env artifact_commit
+func hostArtifactCommit(handle uint32, reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint32) int32
+
+//go:wasmimport env artifact_abort
+func hostArtifactAbort(handle uint32, reasonPtr uint32, reasonLen uint32) int32

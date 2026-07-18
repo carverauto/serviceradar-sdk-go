@@ -29,22 +29,23 @@ const (
 
 // Result is the serviceradar.plugin_result.v1 payload.
 type Result struct {
-	Status             Status            `json:"status"`
-	Summary            string            `json:"summary"`
-	Details            string            `json:"details,omitempty"`
-	Perfdata           string            `json:"perfdata,omitempty"`
-	Metrics            []Metric          `json:"metrics,omitempty"`
-	Labels             map[string]string `json:"labels,omitempty"`
-	ObservedAt         string            `json:"observed_at,omitempty"`
-	SchemaVersion      int               `json:"schema_version,omitempty"`
-	Display            []DisplayWidget   `json:"display,omitempty"`
-	Events             []OCSFEvent       `json:"events,omitempty"`
-	DeviceDiscovery    []DeviceDiscovery `json:"device_discovery,omitempty"`
-	AlertHint          bool              `json:"alert_hint,omitempty"`
-	ConditionID        string            `json:"condition_id,omitempty"`
-	CheckInstanceID    string            `json:"check_instance_id,omitempty"`
-	MonitoredServiceID string            `json:"monitored_service_id,omitempty"`
-	DeviceUID          string            `json:"device_uid,omitempty"`
+	Status             Status              `json:"status"`
+	Summary            string              `json:"summary"`
+	Details            string              `json:"details,omitempty"`
+	Perfdata           string              `json:"perfdata,omitempty"`
+	Metrics            []Metric            `json:"metrics,omitempty"`
+	Labels             map[string]string   `json:"labels,omitempty"`
+	ObservedAt         string              `json:"observed_at,omitempty"`
+	SchemaVersion      int                 `json:"schema_version,omitempty"`
+	Display            []DisplayWidget     `json:"display,omitempty"`
+	Events             []OCSFEvent         `json:"events,omitempty"`
+	DeviceDiscovery    []DeviceDiscovery   `json:"device_discovery,omitempty"`
+	AdvisoryFeed       []AdvisoryFeedBatch `json:"advisory_feed,omitempty"`
+	AlertHint          bool                `json:"alert_hint,omitempty"`
+	ConditionID        string              `json:"condition_id,omitempty"`
+	CheckInstanceID    string              `json:"check_instance_id,omitempty"`
+	MonitoredServiceID string              `json:"monitored_service_id,omitempty"`
+	DeviceUID          string              `json:"device_uid,omitempty"`
 }
 
 // Metric is a structured metric entry.
