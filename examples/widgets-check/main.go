@@ -41,7 +41,6 @@ func run_check() {
 		res := sdk.NewResult()
 		res.SetSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latencyMS))
 		res.ApplyThresholds(latencyMS, thresholds.Warn, thresholds.Crit)
-		res.AddMetric("latency_ms", latencyMS, "ms", thresholds)
 
 		// Widgets
 		res.AddStatCard("Latency", fmt.Sprintf("%.0fms", latencyMS), toneForStatus(res.Status))

@@ -58,10 +58,7 @@ func run_check() {
 			return res, nil
 		}
 
-		res := sdk.Ok(fmt.Sprintf("tcp ok (%d bytes)", n))
-		res.AddMetric("bytes_read", float64(n), "bytes", nil)
-
-		return res, nil
+		return sdk.Ok(fmt.Sprintf("tcp ok (%d bytes)", n)), nil
 	})
 }
 

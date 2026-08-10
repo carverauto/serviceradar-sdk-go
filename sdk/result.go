@@ -29,33 +29,22 @@ const (
 
 // Result is the serviceradar.plugin_result.v1 payload.
 type Result struct {
-	Status             Status            `json:"status"`
-	Summary            string            `json:"summary"`
-	Details            string            `json:"details,omitempty"`
-	Perfdata           string            `json:"perfdata,omitempty"`
-	Metrics            []Metric          `json:"metrics,omitempty"`
-	Labels             map[string]string `json:"labels,omitempty"`
-	ObservedAt         string            `json:"observed_at,omitempty"`
-	SchemaVersion      int               `json:"schema_version,omitempty"`
-	Display            []DisplayWidget   `json:"display,omitempty"`
-	Events             []OCSFEvent       `json:"events,omitempty"`
-	DeviceDiscovery    []DeviceDiscovery `json:"device_discovery,omitempty"`
-	AlertHint          bool              `json:"alert_hint,omitempty"`
-	ConditionID        string            `json:"condition_id,omitempty"`
-	CheckInstanceID    string            `json:"check_instance_id,omitempty"`
-	MonitoredServiceID string            `json:"monitored_service_id,omitempty"`
-	DeviceUID          string            `json:"device_uid,omitempty"`
-}
-
-// Metric is a structured metric entry.
-type Metric struct {
-	Name  string   `json:"name"`
-	Value float64  `json:"value"`
-	Unit  string   `json:"unit,omitempty"`
-	Warn  *float64 `json:"warn,omitempty"`
-	Crit  *float64 `json:"crit,omitempty"`
-	Min   *float64 `json:"min,omitempty"`
-	Max   *float64 `json:"max,omitempty"`
+	Status             Status              `json:"status"`
+	Summary            string              `json:"summary"`
+	Details            string              `json:"details,omitempty"`
+	Perfdata           string              `json:"perfdata,omitempty"`
+	Labels             map[string]string   `json:"labels,omitempty"`
+	ObservedAt         string              `json:"observed_at,omitempty"`
+	SchemaVersion      int                 `json:"schema_version,omitempty"`
+	Display            []DisplayWidget     `json:"display,omitempty"`
+	Events             []OCSFEvent         `json:"events,omitempty"`
+	DeviceDiscovery    []DeviceDiscovery   `json:"device_discovery,omitempty"`
+	AdvisoryFeeds      []AdvisoryFeedBatch `json:"advisory_feeds,omitempty"`
+	AlertHint          bool                `json:"alert_hint,omitempty"`
+	ConditionID        string              `json:"condition_id,omitempty"`
+	CheckInstanceID    string              `json:"check_instance_id,omitempty"`
+	MonitoredServiceID string              `json:"monitored_service_id,omitempty"`
+	DeviceUID          string              `json:"device_uid,omitempty"`
 }
 
 // ThresholdSpec defines warning/critical thresholds and bounds.
@@ -253,24 +242,6 @@ func (r *Result) WithLabel(key, value string) *Result {
 	return r
 }
 
-func (r *Result) AddMetric(name string, value float64, unit string, thresholds *ThresholdSpec) {
-	metric := Metric{Name: name, Value: value, Unit: unit}
-
-	if thresholds != nil {
-		metric.Warn = thresholds.Warn
-		metric.Crit = thresholds.Crit
-		metric.Min = thresholds.Min
-		metric.Max = thresholds.Max
-	}
-
-	r.Metrics = append(r.Metrics, metric)
-}
-
-func (r *Result) WithMetric(name string, value float64, unit string, thresholds *ThresholdSpec) *Result {
-	r.AddMetric(name, value, unit, thresholds)
-	return r
-}
-
 func (r *Result) AddStatCard(label, value, tone string) {
 	r.Display = append(r.Display, DisplayWidget{
 		Widget: "stat_card",
@@ -441,6 +412,15 @@ func generateEventID() string {
 func (r *Result) RequestImmediateAlert(conditionID string) {
 	r.AlertHint = true
 	r.ConditionID = conditionID
+}
+
+func (r *Result) AddAdvisoryFeed(batch AdvisoryFeedBatch) {
+	r.AdvisoryFeeds = append(r.AdvisoryFeeds, batch)
+}
+
+func (r *Result) WithAdvisoryFeed(batch AdvisoryFeedBatch) *Result {
+	r.AddAdvisoryFeed(batch)
+	return r
 }
 
 func (r *Result) WithImmediateAlert(conditionID string) *Result {
