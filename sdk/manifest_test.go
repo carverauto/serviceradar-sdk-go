@@ -147,6 +147,71 @@ func TestPluginManifestRejectsUnsupportedOutputs(t *testing.T) {
 	}
 }
 
+// The semver and bundle-path rules are hand-written rather than compiled
+// regexps, so pin them against the patterns core enforces.
+func TestSemverRuleMatchesCorePattern(t *testing.T) {
+	for _, valid := range []string{"1.0.0", "1.9.0-dev", "0.0.1", "2.3.4+build.5"} {
+		manifest := securityFixtureManifest()
+		manifest.SignalSchemas[0].Version = valid
+		manifest.SignalSchemas[0].DisplayContractVersion = valid
+
+		if err := manifest.Validate(); err != nil {
+			t.Errorf("%q should be accepted as semver, got %v", valid, err)
+		}
+	}
+
+	for _, invalid := range []string{"1.0", "1.0.0.0", "v1.0.0", "1.0.0-", "1.a.0", ""} {
+		manifest := securityFixtureManifest()
+		manifest.SignalSchemas[0].Version = invalid
+
+		if err := manifest.Validate(); err == nil {
+			t.Errorf("%q should be rejected as semver", invalid)
+		}
+	}
+}
+
+func TestBundlePathRuleMatchesCorePattern(t *testing.T) {
+	for _, valid := range []string{
+		"schemas/scan_activity.schema.json",
+		"a.json",
+		"a/b/c-d_e.json",
+	} {
+		manifest := securityFixtureManifest()
+		manifest.SignalSchemas[0].PayloadSchema = valid
+
+		if err := manifest.Validate(); err != nil {
+			t.Errorf("%q should be accepted as a bundle path, got %v", valid, err)
+		}
+	}
+
+	for _, invalid := range []string{
+		"/absolute/path.json",
+		"schemas/../secret.json",
+		"schemas/scan_activity.yaml",
+		"schemas//double.json",
+		".hidden.json",
+		"",
+	} {
+		manifest := securityFixtureManifest()
+		manifest.SignalSchemas[0].PayloadSchema = invalid
+
+		if err := manifest.Validate(); err == nil {
+			t.Errorf("%q should be rejected as a bundle path", invalid)
+		}
+	}
+}
+
+func TestSignalRefRuleMatchesCorePattern(t *testing.T) {
+	for _, invalid := range []string{"Uppercase.id", ".leading.dot", "-leading-dash", "has space", ""} {
+		manifest := securityFixtureManifest()
+		manifest.SignalSchemas[0].ID = invalid
+
+		if err := manifest.Validate(); err == nil {
+			t.Errorf("%q should be rejected as a signal ref", invalid)
+		}
+	}
+}
+
 func TestSerializeRefusesInvalidManifest(t *testing.T) {
 	manifest := securityFixtureManifest()
 	manifest.ID = ""
