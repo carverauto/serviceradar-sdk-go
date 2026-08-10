@@ -203,6 +203,52 @@ err := sdk.EmitTelemetry(sdk.TelemetryBatch{
 Use result-attached `events` for check-scoped annotations. Use `EmitTelemetry` for
 standalone or streaming plugin logs/events.
 
+### Plugin manifest
+
+`PluginManifest` builds the `plugin.yaml` that ServiceRadar core accepts when a
+package is uploaded, and `Validate` mirrors core's own rules so a bad manifest
+fails at build time instead of at upload time:
+
+```go
+schema := sdk.NewSignalSchemaContribution(
+    "com.carverauto.security.scan_activity",
+    "1.0.0",
+    sdk.SignalSchemaSignalTypeEvent,
+    sdk.SignalSchemaPayloadKindOCSFEvent,
+).WithOCSF("1.9.0-dev", 6007, 600701)
+
+manifest := sdk.PluginManifest{
+    ID:            "security-sample",
+    Name:          "Security Sample",
+    Version:       "1.0.0",
+    Entrypoint:    "run_check",
+    Runtime:       sdk.RuntimeWASIPreview1,
+    Capabilities:  []string{"get_config", "log", "submit_result", "emit_telemetry"},
+    Resources:     map[string]any{"requested_memory_mb": 32},
+    Outputs:       sdk.OutputsPluginResult,
+    SignalSchemas: []sdk.SignalSchemaContribution{schema},
+}
+
+payload, err := manifest.Serialize() // validates, then encodes
+```
+
+`NewSignalSchemaContribution` derives the conventional bundle paths
+(`schemas/<name>.schema.json`, `display/<name>.display.json`) and the display
+contract id/version from the schema id; override any field afterwards.
+
+Validation mirrors `ServiceRadar.Plugins.Manifest` in core, which is strict on
+purpose:
+
+- `capabilities`, `runtime`, and `outputs` are checked against core's allowlists.
+- `signal_type` must be `event` or `log`; `payload_kind` must be `ocsf_event` or
+  `otel_log`.
+- Schema and display-contract versions must be semver.
+- Bundle paths must be relative `.json` files and may not traverse directories.
+
+The signal schema field set is **closed**. Core rejects any key it does not
+recognize with `signal_schemas[i].<key> is not allowed`, so adding a field here
+without a matching change in core produces manifests that fail on upload.
+
 ### Advisory feed producers
 Plugins that produce vulnerability intelligence should emit normalized advisory
 batches through the standard plugin result payload. Provider-specific download,
