@@ -18,5 +18,5 @@ func logWithLevel(level uint32, msg string) {
 		return
 	}
 	data := []byte(msg)
-	hostLog(level, ptrFromBytes(data), uint32(len(data)))
+	callHostLog(level, data)
 }

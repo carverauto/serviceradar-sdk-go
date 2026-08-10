@@ -105,7 +105,7 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 
 	respBuf := make([]byte, respBufSize)
 	start := time.Now()
-	res := hostHTTPRequest(ptrFromBytes(encoded), uint32(len(encoded)), ptrFromBytes(respBuf), uint32(len(respBuf)))
+	res := callHostHTTPRequest(encoded, respBuf)
 
 	if err := hostErr(res, "http_request"); err != nil {
 		return nil, err
