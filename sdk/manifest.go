@@ -3,7 +3,6 @@ package sdk
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -59,15 +58,10 @@ const (
 	maxSignalPathLength = 240
 )
 
-var (
-	// signalRefPattern mirrors core's lowercase reverse-DNS identifier rule.
-	signalRefPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
-	// semverPattern mirrors core's semver rule for schema versions.
-	semverPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$`)
-	// bundlePathPattern mirrors core's relative-bundle-path rule.
-	bundlePathPattern = regexp.MustCompile(
-		`^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\.json$`)
-)
+// The rules below are hand-written rather than compiled regexps on purpose.
+// This package is linked into every TinyGo plugin, so a package-level
+// regexp.MustCompile would pull the regexp engine into plugins that never build
+// a manifest and run at startup for all of them. The Rust SDK does the same.
 
 // PluginManifest is the plugin.yaml shape accepted by ServiceRadar core.
 //
@@ -238,19 +232,74 @@ func validateSignalRef(value, path string) []string {
 		return []string{path + " must be a non-empty string"}
 	case len(value) > maxSignalRefLength:
 		return []string{path + " exceeds maximum length"}
-	case !signalRefPattern.MatchString(value):
+	case !isSignalRef(value):
 		return []string{path + " must use lowercase letters, numbers, dots, underscores, or hyphens"}
 	default:
 		return nil
 	}
 }
 
+// isSignalRef mirrors core's lowercase reverse-DNS identifier rule.
+func isSignalRef(value string) bool {
+	for i, c := range value {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case (c == '_' || c == '.' || c == '-') && i > 0:
+		default:
+			return false
+		}
+	}
+
+	return value != ""
+}
+
 func validateSemver(value, path string) []string {
-	if !semverPattern.MatchString(value) {
+	if !isSemver(value) {
 		return []string{path + " must be a valid semver string"}
 	}
 
 	return nil
+}
+
+// isSemver mirrors core's semver rule for schema versions:
+// three dot-separated numeric parts, with an optional -/+ suffix of
+// alphanumerics, dots, and hyphens.
+func isSemver(value string) bool {
+	core := value
+
+	if i := strings.IndexAny(value, "-+"); i >= 0 {
+		core = value[:i]
+		suffix := value[i+1:]
+
+		if suffix == "" {
+			return false
+		}
+
+		for _, c := range suffix {
+			if !isASCIIAlphanumeric(c) && c != '.' && c != '-' {
+				return false
+			}
+		}
+	}
+
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return false
+	}
+
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func validateBundlePath(value, path string) []string {
@@ -263,11 +312,41 @@ func validateBundlePath(value, path string) []string {
 		return []string{path + " must not traverse directories"}
 	case !strings.HasSuffix(value, ".json"):
 		return []string{path + " must reference a JSON file"}
-	case !bundlePathPattern.MatchString(value):
+	case !isRelativeBundlePath(value):
 		return []string{path + " must be a relative bundle path"}
 	default:
 		return nil
 	}
+}
+
+// isRelativeBundlePath mirrors core's relative-bundle-path rule: slash-separated
+// segments of alphanumerics, underscores, dots, and hyphens, each starting with
+// an alphanumeric, underscore, or hyphen.
+func isRelativeBundlePath(value string) bool {
+	if strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") {
+		return false
+	}
+
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" {
+			return false
+		}
+
+		for i, c := range segment {
+			switch {
+			case isASCIIAlphanumeric(c), c == '_', c == '-':
+			case c == '.' && i > 0:
+			default:
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func isASCIIAlphanumeric(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 func isAllowedValue(values []string, value string) bool {
