@@ -6,14 +6,10 @@ import (
 	"testing"
 )
 
-func TestSerializeIncludesMetrics(t *testing.T) {
-	warn := 50.0
-	crit := 100.0
-
+func TestSerializeIncludesEventsAndAlertHints(t *testing.T) {
 	res := NewResult()
 	res.SetStatus(StatusWarning)
 	res.SetSummary("latency high")
-	res.AddMetric("latency_ms", 75, "ms", &ThresholdSpec{Warn: &warn, Crit: &crit})
 	res.AddStatCard("Latency", "75ms", "warning")
 	res.EmitEvent(SeverityWarning, "latency high", "latency_threshold")
 	res.RequestImmediateAlert("latency_threshold")
@@ -229,6 +225,9 @@ func TestServiceMonitoringResultFixture(t *testing.T) {
 	}
 	if decoded["monitored_service_id"] != "service-1" {
 		t.Fatalf("expected monitored_service_id in fixture")
+	}
+	if _, ok := decoded["metrics"]; ok {
+		t.Fatalf("service monitoring fixture must not contain plugin-result metrics")
 	}
 }
 
