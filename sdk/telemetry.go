@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"time"
 )
@@ -59,6 +60,20 @@ func NewOTELLogTelemetryRecord(eventID string, log map[string]any) TelemetryReco
 		EventTimeUnixNano:    now,
 		PayloadKind:          SignalSchemaPayloadKindOTELLog,
 		Payload:              log,
+	}
+}
+
+// NewServiceRadarMetricTelemetryRecord wraps a marshaled
+// serviceradar.metric.v1.MetricBatch for first-class metric telemetry emission.
+func NewServiceRadarMetricTelemetryRecord(eventID string, metricBatchProto []byte) TelemetryRecord {
+	now := time.Now().UTC().UnixNano()
+
+	return TelemetryRecord{
+		EventID:              eventID,
+		ObservedTimeUnixNano: now,
+		EventTimeUnixNano:    now,
+		PayloadKind:          SignalSchemaPayloadKindServiceRadarMetrics,
+		Payload:              base64.StdEncoding.EncodeToString(metricBatchProto),
 	}
 }
 

@@ -14,6 +14,18 @@ func hostSubmitResult(ptr uint32, size uint32) int32
 //go:wasmimport env emit_telemetry
 func hostEmitTelemetry(ptr uint32, size uint32) int32
 
+//go:wasmimport env artifact_open
+func hostArtifactOpen(reqPtr uint32, reqLen uint32) int32
+
+//go:wasmimport env artifact_write
+func hostArtifactWrite(handle uint32, metaPtr uint32, metaLen uint32, payloadPtr uint32, payloadLen uint32) int32
+
+//go:wasmimport env artifact_commit
+func hostArtifactCommit(handle uint32, reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint32) int32
+
+//go:wasmimport env artifact_abort
+func hostArtifactAbort(handle uint32) int32
+
 //go:wasmimport env http_request
 func hostHTTPRequest(reqPtr uint32, reqLen uint32, respPtr uint32, respLen uint32) int32
 

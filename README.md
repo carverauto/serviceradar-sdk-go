@@ -11,7 +11,9 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Support for Websockets
 - Device discovery envelopes for inventory-producing plugins
 - Event emission + alert promotion hints
+- First-class metric telemetry helper for canonical `serviceradar.metric.v1` payloads
 - Signal schema/display contract references for package-managed logs and events
+- Advisory-feed contract builders and gateway-mediated artifact staging helpers
 
 ## Install
 
@@ -56,7 +58,6 @@ func run_check() {
         return sdk.NewResult().
             WithSummary(fmt.Sprintf("http %d in %.0fms", resp.Status, latency)).
             WithThresholds(latency, thresholds.Warn, thresholds.Crit).
-            WithMetric("latency_ms", latency, "ms", thresholds).
             WithStatCard("Latency", fmt.Sprintf("%.0fms", latency), "success"), nil
     })
 }
@@ -99,23 +100,59 @@ Defaults are applied at the edge (right before serialization) so `Serialize` doe
 This means `var r sdk.Result` is safe; serialization produces a valid payload without altering `r`.
 
 ### Fluent builders
-Result has both conventional setters (`SetSummary`, `AddMetric`, etc.) and fluent builders (`WithSummary`, `WithMetric`, etc.) so you can choose style:
+Result has both conventional setters (`SetSummary`, `AddLabel`, etc.) and fluent builders (`WithSummary`, `WithLabel`, etc.) so you can choose style:
 
 ```go
 return sdk.NewResult().
     WithSummary("all good").
-    WithMetric("cpu", 10, "%", nil).
     WithLabel("version", "1.2.3"), nil
 ```
 
-### Threshold helpers
-Use `ThresholdSpec` for warning/critical thresholds and `Thresholds(warn, crit)` to build one without helper functions:
+### Metric telemetry
+Do not put time-series metrics in `serviceradar.plugin_result.v1`. Result
+metrics are no longer serialized by the SDK and are rejected by current
+ServiceRadar agents. Emit canonical metric protobuf batches with
+`emit_telemetry` instead:
 
 ```go
-thresholds := sdk.Thresholds(50, 100)
-res.WithMetric("latency_ms", 10, "ms", thresholds)
-res.WithThresholds(10, thresholds.Warn, thresholds.Crit)
+record := sdk.NewServiceRadarMetricTelemetryRecordFromBatch("metric-event-1", sdk.MetricBatch{
+    Resource: sdk.MetricResource{
+        ServiceName: "http-check",
+        ServiceType: "wasm-plugin",
+    },
+    IngestIdentity: sdk.MetricIngestIdentity{
+        Source:       "plugin-metrics",
+        ProducerID:   "http-check",
+        ProducerKind: "wasm-plugin",
+    },
+    Metrics: []sdk.Metric{{
+        Name:       "http.response_time_ms",
+        MetricType: "plugin",
+        Kind:       sdk.MetricKindGauge,
+        Unit:       "ms",
+        Points: []sdk.MetricPoint{{
+            Value:              12.5,
+            RawValue:           "12.5",
+            RawValueType:       sdk.MetricValueTypeDouble,
+            ObservedAtUnixNano: uint64(time.Now().UTC().UnixNano()),
+        }},
+    }},
+})
+
+err := sdk.EmitTelemetry(sdk.TelemetryBatch{
+    Source:  sdk.TelemetrySource{SourceType: "http-check", SourceInstance: "default"},
+    Records: []sdk.TelemetryRecord{record},
+})
+if err != nil {
+    return nil, err
+}
 ```
+
+`NewServiceRadarMetricTelemetryRecordFromBatch` serializes
+`serviceradar.metric.v1.MetricBatch` with a dependency-free protobuf encoder so
+TinyGo plugins do not need the full Go protobuf runtime. If you already have
+encoded protobuf bytes from another generator, use
+`NewServiceRadarMetricTelemetryRecord`.
 
 ### Signal display contracts
 When a plugin emits OCSF events or OTEL-style logs that are described by a package manifest, attach the package schema/display reference through the SDK:
@@ -165,6 +202,76 @@ err := sdk.EmitTelemetry(sdk.TelemetryBatch{
 
 Use result-attached `events` for check-scoped annotations. Use `EmitTelemetry` for
 standalone or streaming plugin logs/events.
+
+### Advisory feed producers
+Plugins that produce vulnerability intelligence should emit normalized advisory
+batches through the standard plugin result payload. Provider-specific download,
+schema validation, pointer JSON handling, archive extraction, and feed-specific
+normalization stay inside the plugin. ServiceRadar core consumes only the
+generic `serviceradar.advisory_feed.contract.v1` contract.
+
+For large feed snapshots, stage the raw or normalized artifact through the
+gateway-mediated artifact API before submitting the advisory batch:
+
+```go
+stream, err := sdk.OpenArtifactStream(sdk.ArtifactOpenRequest{
+    ObjectKey:   "vulnerability-feeds/example/sha256.json",
+    ContentType: "application/json",
+})
+if err != nil {
+    return nil, err
+}
+if _, err := stream.Write(feedJSON); err != nil {
+    _ = stream.Abort()
+    return nil, err
+}
+artifact, err := stream.Commit(sdk.ArtifactCommitRequest{SHA256: feedSHA256})
+if err != nil {
+    return nil, err
+}
+
+batch := sdk.NewAdvisoryFeedBatch(
+    "com.example.feed",
+    sdk.NewAdvisorySource("example", "normalized"),
+    sdk.NewAdvisorySnapshot(artifact.ObjectKey, artifact.SHA256),
+).WithAdvisory(
+    sdk.NewAdvisoryRecord("CVE-2026-1").
+        WithCVE("CVE-2026-1").
+        WithSeverity("high").
+        WithCoordinate(
+            sdk.NewPURLCoordinate("pkg:deb/debian/openssl@3.0.13?arch=amd64").
+                WithVersionRange(map[string]any{"fixed_version": "3.0.14"}),
+        ),
+)
+
+return sdk.Ok("submitted advisory feed").WithAdvisoryFeed(batch), nil
+```
+
+Plugins need the `advisory-feed:v1` capability to submit advisory batches and
+`artifact-staging:v1` when using the artifact stream helpers. These APIs are
+host and agent-gateway mediated; plugins never receive direct object-store
+credentials.
+
+Scheduled feed downloads are declared in the plugin package manifest with
+`producer_schedules`. The platform persists the declaration, renders operator
+settings, and dispatches runs through `plugin.run_action`; the plugin keeps all
+provider-specific fetch, checksum, archive, and normalization logic.
+
+```go
+schedule := sdk.NewProducerScheduleContract(
+    "daily_advisory_refresh",
+    "Refresh advisory feed",
+    "advisory.refresh",
+).
+    WithCadence(86_400, 3_600, 2_592_000).
+    WithJitterSeconds(120).
+    WithCredentialRequirements(map[string]any{"refs": []string{"feed_api_token"}}).
+    WithPayloadTemplate(map[string]any{"feed_key": "primary"})
+```
+
+Plugins that declare schedules should include `producer-schedule:v1` in their
+manifest capabilities. The scheduled invocation payload uses
+`serviceradar.producer_schedule_run.v1`.
 
 ### Context-aware I/O
 Context variants exist for host I/O to match Go expectations:

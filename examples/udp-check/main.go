@@ -36,10 +36,7 @@ func run_check() {
 			return res, nil
 		}
 
-		res := sdk.Ok(fmt.Sprintf("udp ok (%d bytes)", len(payload)))
-		res.AddMetric("bytes_sent", float64(len(payload)), "bytes", nil)
-
-		return res, nil
+		return sdk.Ok(fmt.Sprintf("udp ok (%d bytes)", len(payload))), nil
 	})
 }
 
