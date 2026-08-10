@@ -32,8 +32,7 @@ func getConfigBytes() ([]byte, error) {
 			return nil, nil
 		}
 
-		ptr := ptrFromBytes(buf)
-		res := hostGetConfig(ptr, size)
+		res := callHostGetConfig(buf)
 
 		if res == hostErrTooLarge && i < len(sizes)-1 {
 			continue

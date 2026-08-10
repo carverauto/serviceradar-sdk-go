@@ -120,7 +120,7 @@ func EmitTelemetry(batch TelemetryBatch) error {
 		return HostError{Code: hostErrInvalid, Op: "emit_telemetry"}
 	}
 
-	res := hostEmitTelemetry(ptrFromBytes(payload), uint32(len(payload)))
+	res := callHostEmitTelemetry(payload)
 	return hostErr(res, "emit_telemetry")
 }
 

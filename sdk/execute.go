@@ -46,7 +46,7 @@ func SubmitResult(payload []byte) error {
 	if len(payload) == 0 {
 		return HostError{Code: hostErrInvalid, Op: "submit_result"}
 	}
-	res := hostSubmitResult(ptrFromBytes(payload), uint32(len(payload)))
+	res := callHostSubmitResult(payload)
 
 	return hostErr(res, "submit_result")
 }
