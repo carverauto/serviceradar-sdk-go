@@ -229,6 +229,46 @@ if err := sdk.LoadConfig(&cfg); err != nil {
 }
 ```
 
+### Source-native local development
+
+Non-TinyGo builds can install a local development host and run the same SDK
+config, HTTP, logging, telemetry, and result calls used by the Wasm build. No
+Wasm artifact, signature, registry, or cluster is required.
+
+`LoadLocalInputs` accepts public config and optional action-invocation JSON from
+files or environment variables. It also reads an optional `.env` file. Process
+environment values override `.env` values. Credential fields use the
+`SERVICERADAR_CREDENTIAL_` prefix and remain separate from runtime config:
+
+```dotenv
+SERVICERADAR_PLUGIN_CONFIG_FILE=testdata/config.json
+SERVICERADAR_PLUGIN_ACTION_FILE=testdata/action.json
+SERVICERADAR_CREDENTIAL_USERNAME=local-user
+SERVICERADAR_CREDENTIAL_PASSWORD=local-password
+```
+
+```go
+inputs, err := sdk.LoadLocalInputs(sdk.LocalInputOptions{})
+if err != nil {
+    return err
+}
+runtimeConfig, err := inputs.RuntimeConfigJSON()
+if err != nil {
+    return err
+}
+
+credentials := inputs.Credentials()
+capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+    ConfigJSON: runtimeConfig,
+    HTTPHandler: newLocalBroker(credentials), // host-owned auth and endpoint policy
+}, runPlugin)
+```
+
+The HTTP callback is the trusted local host adapter. It should enforce the same
+exact endpoint grant, credential injection, redirects, TLS, and response bounds
+as production. Do not add credentials to plugin config, action input, logs, or
+results. A successful local run does not bypass production package admission.
+
 ### Policy input payload helpers (`serviceradar.plugin_inputs.v1`)
 For policy-driven plugin assignments, decode and validate the typed input payload:
 
