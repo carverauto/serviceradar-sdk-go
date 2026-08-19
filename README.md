@@ -2,6 +2,8 @@
 
 ServiceRadar plugin SDK for Go (TinyGo/WASM).
 
+Source of truth: https://github.com/carverauto/serviceradar-sdk-go
+
 ## Overview
 This SDK lets you write ServiceRadar plugin checkers in Go without handling low-level WASM host calls. It handles:
 - Config decoding from the host
@@ -20,6 +22,9 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 ```bash
 go get code.carverauto.dev/carverauto/serviceradar-sdk-go
 ```
+
+The published module path stays `code.carverauto.dev/carverauto/serviceradar-sdk-go`.
+Git hosting is on GitHub; do not change the module path in consumers.
 
 ## Example
 
