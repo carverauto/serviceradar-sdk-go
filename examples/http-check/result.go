@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 func buildHTTPResult(statusCode int, latencyMS, warnMS, critMS float64) *sdk.Result {
