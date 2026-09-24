@@ -85,13 +85,13 @@ func RunLocalHost(options LocalHostOptions, run func() error) (LocalHostCapture,
 	localHost = execution
 	localHostMu.Unlock()
 	defer func() {
+		execution.abortOpenArtifacts()
 		localHostMu.Lock()
 		localHost = previous
 		localHostMu.Unlock()
 	}()
 
 	runErr := run()
-	execution.abortOpenArtifacts()
 	return execution.capture(), runErr
 }
 

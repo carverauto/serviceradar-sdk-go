@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"hash"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -75,6 +76,9 @@ func (h *localHostExecution) artifactOpen(encoded []byte) int32 {
 	}
 	if request.ContentType == "" {
 		request.ContentType = localArtifactDefaultContentType
+	}
+	if _, _, code := encodeLocalCommitResponse(request, strings.Repeat("f", 64), math.MaxInt64, int(MaxArtifactCommitResponseBytes)); code != hostErrOK {
+		return code
 	}
 
 	h.mu.Lock()
@@ -161,6 +165,12 @@ func (h *localHostExecution) artifactCommit(handle uint32, encoded, responseBuf 
 		return hostErrInternal
 	}
 
+	response, payload, code := encodeLocalCommitResponse(stream.request, actualSHA, stream.size, len(responseBuf))
+	if code != hostErrOK {
+		stream.discard()
+		return code
+	}
+
 	target := filepath.Join(h.artifactDir, filepath.FromSlash(stream.request.ObjectKey))
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		stream.discard()
@@ -174,21 +184,6 @@ func (h *localHostExecution) artifactCommit(handle uint32, encoded, responseBuf 
 		stream.discard()
 		return hostErrInternal
 	}
-
-	response := ArtifactCommitResponse{
-		ObjectKey:   stream.request.ObjectKey,
-		ContentType: stream.request.ContentType,
-		SHA256:      actualSHA,
-		SizeBytes:   stream.size,
-		Attributes:  cloneLocalStringMap(stream.request.Attributes),
-	}
-	payload, err := json.Marshal(response)
-	if err != nil {
-		return hostErrInternal
-	}
-	if len(payload) > len(responseBuf) {
-		return hostErrTooLarge
-	}
 	copy(responseBuf, payload)
 
 	h.artifacts.committed = append(h.artifacts.committed, LocalHostArtifact{
@@ -200,6 +195,24 @@ func (h *localHostExecution) artifactCommit(handle uint32, encoded, responseBuf 
 		Attributes:  cloneLocalStringMap(response.Attributes),
 	})
 	return int32(len(payload))
+}
+
+func encodeLocalCommitResponse(request ArtifactOpenRequest, sha string, size int64, limit int) (ArtifactCommitResponse, []byte, int32) {
+	response := ArtifactCommitResponse{
+		ObjectKey:   request.ObjectKey,
+		ContentType: request.ContentType,
+		SHA256:      sha,
+		SizeBytes:   size,
+		Attributes:  cloneLocalStringMap(request.Attributes),
+	}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return response, nil, hostErrInternal
+	}
+	if len(payload) > limit {
+		return response, nil, hostErrTooLarge
+	}
+	return response, payload, hostErrOK
 }
 
 func (h *localHostExecution) artifactAbort(handle uint32) int32 {

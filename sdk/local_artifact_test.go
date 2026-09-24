@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -171,5 +172,55 @@ func TestLocalHostDiscardsAbortedAndUncommittedStreams(t *testing.T) {
 		if _, statErr := os.Stat(filepath.Join(dir, "plugin", name)); !os.IsNotExist(statErr) {
 			t.Fatalf("%s artifact was published: %v", name, statErr)
 		}
+	}
+}
+
+func TestLocalHostRejectsArtifactWhoseCommitResponseCannotFit(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := RunLocalHost(LocalHostOptions{ArtifactDir: dir}, func() error {
+		_, err := OpenArtifactStream(ArtifactOpenRequest{
+			ObjectKey:  "plugin/running-config/1001",
+			Attributes: map[string]string{"kind": strings.Repeat("x", int(MaxArtifactCommitResponseBytes))},
+		})
+		return err
+	})
+	if err == nil {
+		t.Fatal("expected oversized attributes to fail the open")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "plugin")); !os.IsNotExist(statErr) {
+		t.Fatalf("artifact published despite oversized attributes: %v", statErr)
+	}
+	if leftovers := stagingLeftovers(t, dir); len(leftovers) != 0 {
+		t.Fatalf("staging files left behind: %v", leftovers)
+	}
+}
+
+func TestLocalHostDiscardsOpenStreamsWhenRunPanics(t *testing.T) {
+	dir := t.TempDir()
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Fatal("expected the run callback panic to propagate")
+			}
+		}()
+		_, _ = RunLocalHost(LocalHostOptions{ArtifactDir: dir}, func() error {
+			stream, err := OpenArtifactStream(ArtifactOpenRequest{ObjectKey: "plugin/panicked"})
+			if err != nil {
+				return err
+			}
+			if _, err := stream.Write([]byte(localArtifactBody)); err != nil {
+				return err
+			}
+			panic("plugin failure")
+		})
+	}()
+
+	if leftovers := stagingLeftovers(t, dir); len(leftovers) != 0 {
+		t.Fatalf("staging files left behind after panic: %v", leftovers)
+	}
+	if currentLocalHost() != nil {
+		t.Fatal("local host still installed after panic")
 	}
 }
