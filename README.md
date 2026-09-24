@@ -424,6 +424,28 @@ exact endpoint grant, credential injection, redirects, TLS, and response bounds
 as production. Do not add credentials to plugin config, action input, logs, or
 results. A successful local run does not bypass production package admission.
 
+Artifact staging is off by default in a local run, so `OpenArtifactStream`
+fails the same way it does on an agent without a gateway uploader. Set
+`ArtifactDir` to exercise it: each committed artifact is written to
+`<ArtifactDir>/<object key>` with owner-only permissions, after the same object
+key, SHA-256 and size checks the agent applies, and is listed in
+`capture.Artifacts`. Aborted and uncommitted streams leave nothing behind. The
+commit response returns the object key unchanged; the agent gateway scopes it
+under the agent and assignment instead. Staged artifacts can hold whatever the
+plugin retrieved, device configs included, so point `ArtifactDir` outside any
+repository.
+
+```go
+capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+    ConfigJSON:  runtimeConfig,
+    HTTPHandler: newLocalBroker(credentials),
+    ArtifactDir: os.Getenv("SERVICERADAR_LOCAL_ARTIFACT_DIR"),
+}, runPlugin)
+for _, artifact := range capture.Artifacts {
+    fmt.Println(artifact.ObjectKey, artifact.Path, artifact.SHA256)
+}
+```
+
 ### Policy input payload helpers (`serviceradar.plugin_inputs.v1`)
 For policy-driven plugin assignments, decode and validate the typed input payload:
 
