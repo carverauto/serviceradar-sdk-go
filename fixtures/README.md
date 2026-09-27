@@ -11,3 +11,9 @@ and continuation state, ServiceRadar sends that continuation state back in a
 poll request, and the provider eventually returns final per-target results. Real
 values are created by ServiceRadar when a user, schedule, or event handler
 launches an action.
+
+`plugin_run_overrides_config.json` and
+`northbound_action_result_run_overrides.json` cover run overrides: the config
+document a scheduled run receives (one active and one expired override) and an
+action result that sets one override and ends another. They are shared
+byte-for-byte with the Rust SDK so both SDKs decode the same wire shapes.
