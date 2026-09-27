@@ -16,6 +16,7 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - First-class metric telemetry helper for canonical `serviceradar.metric.v1` payloads
 - Signal schema/display contract references for package-managed logs and events
 - Advisory-feed contract builders and gateway-mediated artifact staging helpers
+- Run overrides for time-bounded plugin state, and a one-call OCSF event emitter
 
 ## Install
 
@@ -320,6 +321,44 @@ schedule := sdk.NewProducerScheduleContract(
 Plugins that declare schedules should include `producer-schedule:v1` in their
 manifest capabilities. The scheduled invocation payload uses
 `serviceradar.producer_schedule_run.v1`.
+
+### Run overrides and action-emitted events
+Plugin runs are stateless, so an action that needs to leave state for later
+scheduled runs (an injected demo fault, a maintenance window) returns a run
+override in its result. The action descriptor must declare a maximum duration;
+ServiceRadar clamps every override to it and ignores overrides from actions
+without one.
+
+```go
+descriptor := sdk.NewActionDescriptor("inject_jam", "Inject conveyor jam", scope).
+    WithMaxOverrideDuration(900)
+
+result := sdk.NewActionResult(sdk.ActionStatusSucceeded).
+    SetRunOverride("fault-jam-7", "conveyor_jam", "conveyor-7", 10*time.Minute,
+        map[string]any{"severity": "critical"}).
+    EndRunOverride("fault-saturation-2")
+
+// Opening event of the fault, from the action entrypoint.
+err := sdk.EmitOCSFEvent(sdk.NewOCSFEventLogActivity("conveyor jam", sdk.SeverityCritical))
+```
+
+Scheduled runs read the overrides the host delivers:
+
+```go
+overrides, err := sdk.RunOverrides()
+for _, o := range overrides {
+    switch {
+    case o.Expired:
+        // Delivered once more after expiry; emit the resolving event.
+    case o.ActiveAt(time.Now()):
+        // Apply o.Kind / o.Target / o.Params to this run.
+    }
+}
+```
+
+An expired override keeps being delivered until a run that received it submits
+a result. `EmitOCSFEvent` needs the `emit_telemetry` capability and works from
+both scheduled runs and action entrypoints.
 
 ### Context-aware I/O
 Context variants exist for host I/O to match Go expectations:
