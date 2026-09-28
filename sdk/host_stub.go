@@ -20,6 +20,10 @@ func hostHTTPRequest(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }
 
+func hostGRPCUnary(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
+	return hostErrNotFound
+}
+
 func hostTCPConnect(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }

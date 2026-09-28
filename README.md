@@ -17,11 +17,24 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Signal schema/display contract references for package-managed logs and events
 - Advisory-feed contract builders and gateway-mediated artifact staging helpers
 - Run overrides for time-bounded plugin state, and a one-call OCSF event emitter
+- Host-proxied unary gRPC calls
+- HTTP response headers (envelope mode) with `Retry-After` parsing
+- Typed credential broker grants, including OAuth2 client-credentials injection
 
 ## Install
 
 ```bash
-go get github.com/carverauto/serviceradar-sdk-go
+go get github.com/carverauto/serviceradar-sdk-go/v2@latest
+```
+
+### Fetching the module
+
+The public Go module proxy and checksum database do not serve these modules,
+so tell the Go toolchain to fetch them directly from GitHub:
+
+```bash
+export GOPRIVATE=github.com/carverauto/*
+export GONOSUMDB=github.com/carverauto/*
 ```
 
 ## Example
@@ -75,6 +88,7 @@ func main() {}
 - `examples/tcp-check`: TCP connectivity check with optional write/read
 - `examples/udp-check`: UDP send check with bytes-sent metric
 - `examples/widgets-check`: HTTP check demonstrating stat card, table, sparkline, and markdown widgets
+- `examples/sample-northbound`: northbound action plugin (device lookup, interface audit) with no external dependency
 
 ## API ergonomics
 
@@ -369,6 +383,80 @@ Context variants exist for host I/O to match Go expectations:
 
 These currently check `ctx.Err()` before the host call (TinyGo/Wasm is synchronous), but give you a stable API if cancellation support is added later.
 
+### HTTP response headers
+The default response mode, `sdk.ResponseModeStatusBody`, returns only the
+status and body. Set `sdk.ResponseModeEnvelope` to also receive the response
+headers; the host joins repeated values with commas.
+
+```go
+resp, err := sdk.HTTP.DoContext(ctx, sdk.HTTPRequest{
+    URL:          "https://api.example.com/v1/devices",
+    ResponseMode: sdk.ResponseModeEnvelope,
+})
+if err != nil {
+    return nil, err
+}
+if resp.Status == http.StatusTooManyRequests {
+    if wait, ok := resp.RetryAfter(); ok { // delta-seconds or HTTP-date
+        return sdk.Warning(fmt.Sprintf("rate limited, retry in %s", wait)), nil
+    }
+}
+contentType := resp.Header("content-type") // case-insensitive
+```
+
+### Unary gRPC
+`sdk.GRPC.Unary` makes one unary call through the host's `grpc_unary` import.
+The message is the serialized request protobuf, so the SDK carries no protobuf
+runtime; encode and decode with whatever generator suits TinyGo.
+
+```go
+resp, err := sdk.GRPC.Unary(ctx, sdk.GRPCRequest{
+    TargetHost: "device.example.com",
+    TargetPort: 9200,
+    Method:     "/example.v1.Device/Handle",
+    Metadata:   map[string]string{"x-request-id": "req-0001"},
+    Message:    requestBytes,
+    TimeoutMS:  5000,
+    Transport:  sdk.GRPCTransportTLS, // default; sdk.GRPCTransportH2C for cleartext
+})
+var status *sdk.GRPCStatusError
+if errors.As(err, &status) {
+    // Completed with a non-OK status; resp still carries headers and trailers.
+    return sdk.Critical(fmt.Sprintf("rpc failed: %s", status.Code)), nil
+}
+if err != nil {
+    return nil, err // host policy error (sdk.HostError)
+}
+```
+
+The manifest must declare the `grpc_request` capability
+(`sdk.CapabilityGRPCRequest`). The host checks the destination against
+`allowed_domains`, `allowed_networks` and `allowed_ports` before dialing,
+allows `h2c` only inside `allowed_networks`, caps responses at 4 MiB, and
+rejects reserved and `grpc-*` metadata keys. Dial failures arrive as status
+`UNAVAILABLE`.
+
+### Credential broker grants
+Target contexts carry credential broker grants; the host injects the
+credential into matching outbound requests, so the plugin never reads the
+secret. The `sdk.CredentialInject*` constants name the accepted inject types.
+`OAuth2ClientCredentialsInject` builds an `oauth2_client_credentials` spec with
+the exact keys the host reads:
+
+```go
+inject, err := sdk.NewOAuth2ClientCredentialsInject("auth.example.com", 443, "/oauth2/token").
+    WithScope("devices.read").
+    Inject()
+// {"type":"oauth2_client_credentials","token_method":"POST","token_host":"auth.example.com",
+//  "token_port":"443","token_path":"/oauth2/token","field_client_id":"client_id",
+//  "field_client_secret":"client_secret","fixed_grant_type":"client_credentials",
+//  "fixed_scope":"devices.read"}
+```
+
+`field_<credential field>` maps a stored credential field to a token form
+field; `fixed_<form field>` sends a literal value. See
+`fixtures/credential_grant_oauth2_client_credentials.json` for a full grant.
+
 ### WebSocket Support
 The SDK provides WebSocket client capabilities for plugins that need to communicate with WebSocket servers:
 
@@ -458,6 +546,30 @@ capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
 }, runPlugin)
 ```
 
+Pass `GRPCHandler` to serve `grpc_unary` calls the same way; without one,
+gRPC calls fail with host error `-4`.
+
+The local host emulates `oauth2_client_credentials` grants itself. Pass the
+grants and the credentials, and a request inside a grant's allow scope reaches
+your HTTP handler with `Authorization: Bearer <sdk.LocalOAuth2BearerToken(grant)>`,
+a synthetic token derived from the grant identity only. A covered request the
+grant cannot authorize (missing credential field, outside the inject target,
+insecure TLS without opt-in) is denied with `-2`, as on the agent:
+
+```dotenv
+SERVICERADAR_CREDENTIAL_CLIENT_ID=local-client
+SERVICERADAR_CREDENTIAL_CLIENT_SECRET=local-client-secret
+```
+
+```go
+capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+    ConfigJSON:       runtimeConfig,
+    HTTPHandler:      newLocalBroker(),
+    CredentialGrants: target.CredentialGrants(),
+    Credentials:      inputs.Credentials(),
+}, runPlugin)
+```
+
 The HTTP callback is the trusted local host adapter. It should enforce the same
 exact endpoint grant, credential injection, redirects, TLS, and response bounds
 as production. Do not add credentials to plugin config, action input, logs, or
@@ -535,6 +647,7 @@ The agent imports host functions from the `env` module:
 - `submit_result`
 - `emit_telemetry`
 - `http_request`
+- `grpc_unary`
 - `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close`
 - `udp_sendto`
 - `websocket_connect` / `websocket_send` / `websocket_recv` / `websocket_close`

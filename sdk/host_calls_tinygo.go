@@ -27,6 +27,15 @@ func callHostHTTPRequest(request, response []byte) int32 {
 	)
 }
 
+func callHostGRPCUnary(request, response []byte) int32 {
+	return hostGRPCUnary(
+		ptrFromBytes(request),
+		uint32(len(request)),
+		ptrFromBytes(response),
+		uint32(len(response)),
+	)
+}
+
 func callHostArtifactOpen(request []byte) int32 {
 	return hostArtifactOpen(ptrFromBytes(request), uint32(len(request)))
 }

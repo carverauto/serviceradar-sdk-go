@@ -41,6 +41,14 @@ func callHostHTTPRequest(request, response []byte) int32 {
 	return host.httpRequest(request, response)
 }
 
+func callHostGRPCUnary(request, response []byte) int32 {
+	host := currentLocalHost()
+	if host == nil {
+		return hostErrNotFound
+	}
+	return host.grpcUnary(request, response)
+}
+
 func callHostArtifactOpen(request []byte) int32 {
 	host := currentLocalHost()
 	if host == nil {
