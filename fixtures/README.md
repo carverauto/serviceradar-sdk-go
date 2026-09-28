@@ -17,3 +17,10 @@ launches an action.
 document a scheduled run receives (one active and one expired override) and an
 action result that sets one override and ends another. They are shared
 byte-for-byte with the Rust SDK so both SDKs decode the same wire shapes.
+
+`grpc_unary_request.json`, `grpc_unary_response_ok.json` and
+`grpc_unary_response_error.json` are the `grpc_unary` host ABI request and the
+two response shapes (OK and a non-OK status). All hosts, methods and messages
+are invented. `credential_grant_oauth2_client_credentials.json` is a credential
+broker grant with an `oauth2_client_credentials` inject spec and allow scope.
+These are also shared byte-for-byte with the Rust SDK.

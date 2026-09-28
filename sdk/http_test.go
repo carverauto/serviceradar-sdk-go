@@ -93,3 +93,51 @@ func contains(value, needle string) bool {
 	}
 	return false
 }
+
+func TestHTTPResponseHeaderIsCaseInsensitive(t *testing.T) {
+	resp := &HTTPResponse{Headers: map[string]string{"Content-Type": "application/json", "X-Rate-Limit": "10"}}
+	if got := resp.Header("content-type"); got != "application/json" {
+		t.Fatalf("Header(content-type) = %q", got)
+	}
+	if got := resp.Header("X-RATE-LIMIT"); got != "10" {
+		t.Fatalf("Header(X-RATE-LIMIT) = %q", got)
+	}
+	if got := resp.Header("missing"); got != "" {
+		t.Fatalf("Header(missing) = %q", got)
+	}
+	var nilResp *HTTPResponse
+	if got := nilResp.Header("content-type"); got != "" {
+		t.Fatalf("nil response Header = %q", got)
+	}
+}
+
+func TestHTTPResponseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	cases := map[string]struct {
+		value  string
+		want   time.Duration
+		wantOK bool
+	}{
+		"absent":        {"", 0, false},
+		"delta seconds": {"120", 2 * time.Minute, true},
+		"zero":          {"0", 0, true},
+		"http date":     {"Fri, 02 Jan 2026 03:05:35 GMT", 90 * time.Second, true},
+		"past date":     {"Thu, 01 Jan 2026 00:00:00 GMT", 0, true},
+		"negative":      {"-5", 0, false},
+		"fractional":    {"1.5", 0, false},
+		"malformed":     {"soon", 0, false},
+		"overflow":      {"99999999999999999999", 0, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			resp := &HTTPResponse{Headers: map[string]string{}}
+			if tc.value != "" {
+				resp.Headers["retry-after"] = tc.value
+			}
+			got, ok := resp.retryAfterAt(now)
+			if got != tc.want || ok != tc.wantOK {
+				t.Fatalf("retryAfterAt = (%s, %v), want (%s, %v)", got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}

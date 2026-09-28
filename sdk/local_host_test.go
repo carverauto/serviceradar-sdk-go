@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestRunLocalHostExercisesNormalSDKCalls(t *testing.T) {
@@ -88,5 +89,42 @@ func TestRunLocalHostRedactsHandlerErrorsAtSDKBoundary(t *testing.T) {
 	})
 	if err == nil || errors.Is(err, secretError) || err.Error() == secretError.Error() {
 		t.Fatalf("local HTTP handler error was not reduced to a host error: %v", err)
+	}
+}
+
+func TestRunLocalHostHTTPResponseModes(t *testing.T) {
+	var modes []string
+	handler := func(_ context.Context, request HTTPRequest) (*HTTPResponse, error) {
+		modes = append(modes, request.ResponseMode)
+		return &HTTPResponse{
+			Status:  429,
+			Headers: map[string]string{"Retry-After": "30", "Content-Type": "application/json"},
+			Body:    []byte(`{}`),
+		}, nil
+	}
+	var envelope, statusBody *HTTPResponse
+	_, err := RunLocalHost(LocalHostOptions{ConfigJSON: []byte(`{}`), HTTPHandler: handler}, func() error {
+		var err error
+		envelope, err = HTTP.Do(HTTPRequest{URL: "https://api.example.com/v1/items", ResponseMode: ResponseModeEnvelope})
+		if err != nil {
+			return err
+		}
+		statusBody, err = HTTP.Get("https://api.example.com/v1/items")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost() error = %v", err)
+	}
+	if len(modes) != 2 || modes[0] != ResponseModeEnvelope || modes[1] != ResponseModeStatusBody {
+		t.Fatalf("response modes = %v", modes)
+	}
+	if envelope.Status != 429 || envelope.Header("content-type") != "application/json" {
+		t.Fatalf("envelope response = %#v", envelope)
+	}
+	if wait, ok := envelope.RetryAfter(); !ok || wait != 30*time.Second {
+		t.Fatalf("RetryAfter = (%s, %v)", wait, ok)
+	}
+	if statusBody.Status != 429 || statusBody.Headers != nil || string(statusBody.Body) != `{}` {
+		t.Fatalf("status_body response = %#v", statusBody)
 	}
 }
