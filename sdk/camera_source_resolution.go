@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -39,6 +40,12 @@ const (
 	// stream addresses out of inventory results and report only each
 	// profile's origin (scheme, host and port).
 	CameraStreamAddressesOmit = "omit"
+)
+
+var (
+	errCameraSourceRequestSchema   = errors.New("unsupported camera source resolution request schema")
+	errCameraSourceRequestCameraID = errors.New("camera source resolution request has no vendor_camera_id")
+	errCameraSourceResolutionShape = errors.New("camera source resolution needs exactly one of url and failure_class")
 )
 
 // Failure classes a resolver may report. The host reports any other class as
@@ -97,10 +104,10 @@ func ParseCameraSourceResolutionRequest(configJSON []byte) (request CameraSource
 	}
 	if request.Schema != CameraSourceResolutionRequestSchemaV1 {
 		return CameraSourceResolutionRequest{}, false,
-			fmt.Errorf("unsupported camera source resolution request schema %q", request.Schema)
+			fmt.Errorf("%w %q", errCameraSourceRequestSchema, request.Schema)
 	}
 	if strings.TrimSpace(request.VendorCameraID) == "" {
-		return CameraSourceResolutionRequest{}, false, fmt.Errorf("camera source resolution request has no vendor_camera_id")
+		return CameraSourceResolutionRequest{}, false, errCameraSourceRequestCameraID
 	}
 	return request, true, nil
 }
@@ -132,7 +139,7 @@ func (r CameraSourceResolution) Serialize() ([]byte, error) {
 	r.URL = strings.TrimSpace(r.URL)
 	r.FailureClass = strings.TrimSpace(r.FailureClass)
 	if (r.URL == "") == (r.FailureClass == "") {
-		return nil, fmt.Errorf("camera source resolution needs exactly one of url and failure_class")
+		return nil, errCameraSourceResolutionShape
 	}
 	if r.URL != "" {
 		r.FailureDetail = ""

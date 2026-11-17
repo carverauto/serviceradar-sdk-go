@@ -374,7 +374,7 @@ An expired override keeps being delivered until a run that received it submits
 a result. `EmitOCSFEvent` needs the `emit_telemetry` capability and works from
 both scheduled runs and action entrypoints.
 
-## Camera stream addresses
+### Camera stream addresses
 
 A camera stream address is a secret: an RTSP path alias works as a bearer
 token, and other addresses carry credentials. ServiceRadar does not store it.
