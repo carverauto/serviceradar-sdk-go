@@ -374,6 +374,44 @@ An expired override keeps being delivered until a run that received it submits
 a result. `EmitOCSFEvent` needs the `emit_telemetry` capability and works from
 both scheduled runs and action entrypoints.
 
+### Camera stream addresses
+
+A camera stream address is a secret: an RTSP path alias works as a bearer
+token, and other addresses carry credentials. ServiceRadar does not store it.
+When a stream opens, the agent runs the camera inventory plugin that discovered
+the camera with a resolution request in its config, and hands the address the
+plugin returns to its stream reader. The entrypoint checks for the request
+first:
+
+```go
+request, ok, err := sdk.CameraSourceResolutionRequested()
+if err != nil {
+    return err
+}
+if ok {
+    url, found := lookupStreamURL(request.VendorCameraID, request.VendorProfileID)
+    if !found {
+        return sdk.SubmitCameraSourceFailure(sdk.CameraSourceFailureNotFound,
+            "streaming is disabled for this camera")
+    }
+    return sdk.SubmitCameraSourceURL(url)
+}
+```
+
+A resolver uses the assignment's own config and credentials, never creates or
+enables a stream on the camera or controller, and never logs the address. The
+failure detail is shown to operators, so keep the address and credentials out
+of it.
+
+Inventory runs ask the host whether to report addresses at all:
+
+```go
+omit, err := sdk.OmitCameraStreamAddresses()
+```
+
+When `omit` is true, report each profile's origin (scheme, host and port) and
+no stream URL, path or alias. When it is false, report addresses as before.
+
 ### Context-aware I/O
 Context variants exist for host I/O to match Go expectations:
 - HTTP: `HTTP.DoContext`, `HTTP.GetContext`, `HTTP.PostContext`
