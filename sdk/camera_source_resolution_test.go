@@ -109,7 +109,10 @@ func TestParseOmitCameraStreamAddresses(t *testing.T) {
 		}
 	}
 
-	if _, err := ParseOmitCameraStreamAddresses([]byte(`{"_serviceradar_camera_stream_addresses":true}`)); err == nil {
-		t.Error("a non-string value must be an error")
+	for _, value := range []string{`true`, `null`, `1`, `{}`, `["omit"]`} {
+		config := `{"_serviceradar_camera_stream_addresses":` + value + `}`
+		if _, err := ParseOmitCameraStreamAddresses([]byte(config)); err == nil {
+			t.Errorf("non-string value %s must be an error", value)
+		}
 	}
 }

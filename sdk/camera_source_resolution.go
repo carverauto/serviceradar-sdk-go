@@ -167,11 +167,16 @@ func ParseOmitCameraStreamAddresses(configJSON []byte) (bool, error) {
 		return false, err
 	}
 
-	var value string
+	// A pointer tells JSON null apart from a string: null decodes without an
+	// error and must not read as "report addresses".
+	var value *string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return false, fmt.Errorf("decode %s: %w", CameraStreamAddressesConfigKey, err)
 	}
-	return value == CameraStreamAddressesOmit, nil
+	if value == nil {
+		return false, fmt.Errorf("%s is not a string", CameraStreamAddressesConfigKey)
+	}
+	return *value == CameraStreamAddressesOmit, nil
 }
 
 func hostConfigValue(configJSON []byte, key string) (json.RawMessage, bool, error) {
