@@ -128,3 +128,66 @@ func TestRunLocalHostHTTPResponseModes(t *testing.T) {
 		t.Fatalf("status_body response = %#v", statusBody)
 	}
 }
+
+func TestRunLocalHostEnvelopeTraceTLSAndFollowRedirects(t *testing.T) {
+	var seenFollow *bool
+	var resp *HTTPResponse
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, req HTTPRequest) (*HTTPResponse, error) {
+			seenFollow = req.FollowRedirects
+			return &HTTPResponse{
+				Status:     302,
+				Headers:    map[string]string{"Location": "/next"},
+				SetCookies: []string{"sid=abc; Path=/; Secure", "csrf=def; Path=/"},
+				Body:       []byte(`{"ok":true}`),
+				Trace: &HTTPTrace{
+					DNSDurationNS:          1000,
+					ConnectDurationNS:      2000,
+					TLSHandshakeDurationNS: 3000,
+					TTFBDurationNS:         4000,
+					TransferDurationNS:     500,
+					TotalDurationNS:        10500,
+					ConnectionReused:       false,
+					RedirectCount:          0,
+					FinalURL:               "https://sso.example.com/login",
+					Protocol:               "HTTP/2.0",
+					RemoteAddr:             "192.0.2.10:443",
+					Hops: []HTTPHopTrace{
+						{URL: "https://sso.example.com/login", Status: 302, TTFBDurationNS: 4000},
+					},
+				},
+				TLS: &HTTPTLSInfo{
+					Version:           "TLS1.3",
+					CipherSuite:       "TLS_AES_128_GCM_SHA256",
+					ALPN:              "h2",
+					LeafSubjectCN:     "sso.example.com",
+					LeafIssuerCN:      "Test CA",
+					LeafNotAfterUnix:  1790553600,
+					LeafDaysRemaining: 0,
+				},
+			}, nil
+		},
+	}, func() error {
+		var reqErr error
+		resp, reqErr = HTTP.Do(HTTPRequest{
+			Method:          "POST",
+			URL:             "https://sso.example.com/login",
+			ResponseMode:    ResponseModeEnvelope,
+			FollowRedirects: Bool(false),
+		})
+		return reqErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost() error = %v", err)
+	}
+	if seenFollow == nil || *seenFollow {
+		t.Fatalf("FollowRedirects = %v, want false", seenFollow)
+	}
+	if resp == nil || resp.Trace == nil || resp.TLS == nil {
+		t.Fatalf("expected Trace and TLS in response, got %#v", resp)
+	}
+	if len(resp.SetCookies) != 2 || resp.TLS.LeafDaysRemaining != 0 || resp.Trace.TotalDurationNS != 10500 {
+		t.Fatalf("unexpected envelope fields: %#v", resp)
+	}
+}

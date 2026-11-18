@@ -36,9 +36,9 @@ func TestDecodeStatusBodyHTTPResponseIgnoresLegacyEnvelope(t *testing.T) {
 }
 
 func TestDecodeEnvelopeHTTPResponse(t *testing.T) {
-	payload := []byte(`{"status":202,"headers":{"content-type":"application/json"},"body_base64":"` +
+	payload := []byte(`{"status":202,"headers":{"content-type":"application/json","Set-Cookie":"a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT,b=2"},"set_cookies":["a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT","b=2"],"body_base64":"` +
 		base64.StdEncoding.EncodeToString([]byte(`{"queued":true}`)) +
-		`","body_encoding":"base64"}`)
+		`","body_encoding":"base64","trace":{"dns_duration_ns":100,"connect_duration_ns":200,"tls_handshake_duration_ns":300,"ttfb_duration_ns":400,"transfer_duration_ns":500,"total_duration_ns":1500,"connection_reused":true,"redirect_count":1,"final_url":"https://example.invalid/final","protocol":"HTTP/2.0","remote_addr":"192.0.2.1:443","hops":[{"url":"https://example.invalid/start","status":302,"ttfb_duration_ns":200},{"url":"https://example.invalid/final","status":202,"ttfb_duration_ns":400}]},"tls":{"version":"TLS1.3","cipher_suite":"TLS_AES_128_GCM_SHA256","alpn":"h2","leaf_subject_cn":"example.invalid","leaf_issuer_cn":"CA","leaf_not_after_unix":1790553600,"leaf_days_remaining":0}}`)
 
 	resp, err := decodeEnvelopeHTTPResponse(payload, 2*time.Millisecond)
 	if err != nil {
@@ -55,6 +55,21 @@ func TestDecodeEnvelopeHTTPResponse(t *testing.T) {
 	}
 	if resp.Duration != 2*time.Millisecond {
 		t.Fatalf("duration = %s, want 2ms", resp.Duration)
+	}
+	if len(resp.SetCookies) != 2 || resp.SetCookies[0] != "a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT" {
+		t.Fatalf("SetCookies = %#v", resp.SetCookies)
+	}
+	if vals := resp.HeaderValues("set-cookie"); len(vals) != 2 {
+		t.Fatalf("HeaderValues(set-cookie) = %#v", vals)
+	}
+	if vals := resp.HeaderValues("Content-Type"); len(vals) != 1 || vals[0] != "application/json" {
+		t.Fatalf("HeaderValues(Content-Type) = %#v", vals)
+	}
+	if resp.Trace == nil || !resp.Trace.ConnectionReused || resp.Trace.RedirectCount != 1 || len(resp.Trace.Hops) != 2 {
+		t.Fatalf("Trace = %#v", resp.Trace)
+	}
+	if resp.TLS == nil || resp.TLS.Version != "TLS1.3" || resp.TLS.LeafDaysRemaining != 0 || resp.TLS.LeafNotAfterUnix != 1790553600 {
+		t.Fatalf("TLS = %#v", resp.TLS)
 	}
 }
 
@@ -82,6 +97,21 @@ func TestMarshalHTTPRequestPayload(t *testing.T) {
 		if !contains(got, want) {
 			t.Fatalf("payload %s missing %s", got, want)
 		}
+	}
+	if contains(got, "follow_redirects") {
+		t.Fatalf("nil FollowRedirects must be omitted from JSON: %s", got)
+	}
+
+	payload.FollowRedirects = Bool(false)
+	gotFalse := string(marshalHTTPRequestPayload(payload))
+	if !contains(gotFalse, `"follow_redirects":false`) {
+		t.Fatalf("payload %s missing follow_redirects:false", gotFalse)
+	}
+
+	payload.FollowRedirects = Bool(true)
+	gotTrue := string(marshalHTTPRequestPayload(payload))
+	if !contains(gotTrue, `"follow_redirects":true`) {
+		t.Fatalf("payload %s missing follow_redirects:true", gotTrue)
 	}
 }
 

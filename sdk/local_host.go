@@ -246,6 +246,7 @@ func decodeLocalHTTPRequest(encoded []byte) (HTTPRequest, string, error) {
 		ResponseMode:       payload.ResponseMode,
 		TimeoutMS:          payload.TimeoutMS,
 		InsecureSkipVerify: payload.InsecureSkipVerify,
+		FollowRedirects:    payload.FollowRedirects,
 	}, payload.ResponseMode, nil
 }
 
@@ -256,7 +257,10 @@ func encodeLocalHTTPResponse(mode string, response *HTTPResponse) ([]byte, error
 	return json.Marshal(httpResponsePayload{
 		Status:       response.Status,
 		Headers:      response.Headers,
+		SetCookies:   response.SetCookies,
 		BodyBase64:   base64.StdEncoding.EncodeToString(response.Body),
 		BodyEncoding: "base64",
+		Trace:        response.Trace,
+		TLS:          response.TLS,
 	})
 }
