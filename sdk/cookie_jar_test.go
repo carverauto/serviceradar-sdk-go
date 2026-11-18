@@ -78,3 +78,56 @@ func TestCookieJarMaxAgePrecedenceAndDateFormats(t *testing.T) {
 		t.Fatalf("after Max-Age=0 HeaderValue = %q", got)
 	}
 }
+
+func TestCookieJarLargeMaxAgeRetentionAndOverflow(t *testing.T) {
+	now := time.Unix(1790510400, 0).UTC()
+	jar := NewCookieJar()
+	jar.nowFn = func() time.Time { return now }
+
+	jar.StoreResponseCookies("https://overflow.example.com/login", []string{
+		"long_lived=still_here; Path=/; Max-Age=10000000000",
+		"huge_pos=kept; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=99999999999999999999999999999",
+		"huge_plus=kept_plus; Path=/; Max-Age=+99999999999999999999999999999",
+		"bad_syntax=not_clamped; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=99999999999999999999999999999abc",
+	})
+
+	want := "long_lived=still_here; huge_pos=kept; huge_plus=kept_plus"
+	if got := jar.HeaderValue("https://overflow.example.com/check"); got != want {
+		t.Fatalf("HeaderValue = %q, want %q", got, want)
+	}
+
+	// Negative overflow deletes existing cookie.
+	jar.StoreResponseCookies("https://overflow.example.com/logout", []string{
+		"long_lived=gone; Path=/; Max-Age=-99999999999999999999999999999",
+	})
+	wantAfterNeg := "huge_pos=kept; huge_plus=kept_plus"
+	if got := jar.HeaderValue("https://overflow.example.com/check"); got != wantAfterNeg {
+		t.Fatalf("after negative overflow HeaderValue = %q, want %q", got, wantAfterNeg)
+	}
+}
+
+func TestCookieJarDoubleDotAndIPv6Brackets(t *testing.T) {
+	now := time.Unix(1790510400, 0).UTC()
+	jar := NewCookieJar()
+	jar.nowFn = func() time.Time { return now }
+
+	jar.StoreResponseCookies("https://sso.example.com/login", []string{
+		"double_dot=evil; Domain=..example.com; Path=/",
+		"single_dot=ok; Domain=.example.com; Path=/",
+	})
+	if got := jar.HeaderValue("https://sso.example.com/check"); got != "single_dot=ok" {
+		t.Fatalf("sso HeaderValue = %q, want single_dot=ok", got)
+	}
+	if got := jar.HeaderValue("https://app.example.com/check"); got != "single_dot=ok" {
+		t.Fatalf("app HeaderValue = %q, want single_dot=ok", got)
+	}
+
+	jar.StoreResponseCookies("https://[::1]/login", []string{
+		"v6_host=v1; Path=/",
+		"v6_dom=v2; Domain=::1; Path=/",
+		"v6_brack=v3; Domain=[::1]; Path=/",
+	})
+	if got := jar.HeaderValue("https://[::1]/check"); got != "v6_host=v1; v6_dom=v2" {
+		t.Fatalf("ipv6 HeaderValue = %q, want \"v6_host=v1; v6_dom=v2\"", got)
+	}
+}

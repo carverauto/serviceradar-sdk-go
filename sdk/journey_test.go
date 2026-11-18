@@ -483,3 +483,94 @@ func TestTinyGoWASIJourneyBuilds(t *testing.T) {
 		t.Fatalf("compiled wasm missing or empty: err=%v", err)
 	}
 }
+
+func TestJourneyExtractCookieCrossDomainFailsAndSameStepPathFallbackSucceeds(t *testing.T) {
+	// 1. Cross-domain ExtractCookie must fail CRITICAL and never leak Step 1's cookie.
+	crossJourney := NewJourney("cross-domain-extract")
+	crossJourney.Step("login", "GET", "https://sso.example.com/login").
+		ExpectStatus(200).
+		Step("other", "GET", "https://other.example.com/check").
+		ExpectStatus(200).
+		ExtractCookie("sid", "stolen")
+
+	var crossReport *JourneyReport
+	var step2CookieHeader string
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, req HTTPRequest) (*HTTPResponse, error) {
+			if strings.Contains(req.URL, "sso.example.com") {
+				return &HTTPResponse{
+					Status:     200,
+					SetCookies: []string{"sid=sso-only-secret; Path=/; Secure"},
+					Body:       []byte("ok"),
+				}, nil
+			}
+			step2CookieHeader = req.Headers["Cookie"]
+			return &HTTPResponse{Status: 200, Body: []byte("ok")}, nil
+		},
+	}, func() error {
+		var execErr error
+		crossReport, execErr = crossJourney.Execute(context.Background())
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost cross-domain: %v", err)
+	}
+	if step2CookieHeader != "" {
+		t.Fatalf("host-only cookie leaked to other.example.com: %q", step2CookieHeader)
+	}
+	if crossReport.Status != StatusCritical {
+		t.Fatalf("cross-domain status = %s, want CRITICAL (summary=%s)", crossReport.Status, crossReport.Result.Summary)
+	}
+	if len(crossReport.Steps) != 2 || crossReport.Steps[0].Status != StepStatusOK || crossReport.Steps[1].Status != StepStatusCritical {
+		t.Fatalf("unexpected cross-domain step statuses: %#v", crossReport.Steps)
+	}
+
+	// 2. Same-step Path=/app ExtractCookie succeeds from the current step's Set-Cookie headers.
+	sameStepJourney := NewJourney("same-step-path-extract")
+	sameStepJourney.Step("login", "GET", "https://sso.example.com/auth/login").
+		ExpectStatus(200).
+		ExtractCookie("sid", "sid_tok").
+		Step("app", "GET", "https://sso.example.com/app/me").
+		WithHeader("X-Sid", "{{sid_tok}}").
+		ExpectStatus(200)
+
+	var sameStepReport *JourneyReport
+	var gotXSid string
+	var gotAppCookie string
+	_, err = RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, req HTTPRequest) (*HTTPResponse, error) {
+			if strings.Contains(req.URL, "/auth/login") {
+				return &HTTPResponse{
+					Status:     200,
+					SetCookies: []string{"sid=path-scoped-secret; Path=/app; Secure"},
+					Body:       []byte("ok"),
+				}, nil
+			}
+			gotXSid = req.Headers["X-Sid"]
+			gotAppCookie = req.Headers["Cookie"]
+			return &HTTPResponse{Status: 200, Body: []byte("ok")}, nil
+		},
+	}, func() error {
+		var execErr error
+		sameStepReport, execErr = sameStepJourney.Execute(context.Background())
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost same-step: %v", err)
+	}
+	if sameStepReport.Status != StatusOK {
+		t.Fatalf("same-step status = %s, want OK (summary=%s)", sameStepReport.Status, sameStepReport.Result.Summary)
+	}
+	if gotXSid != "path-scoped-secret" {
+		t.Fatalf("X-Sid = %q, want path-scoped-secret", gotXSid)
+	}
+	if gotAppCookie != "sid=path-scoped-secret" {
+		t.Fatalf("app Cookie = %q, want sid=path-scoped-secret", gotAppCookie)
+	}
+	resJSON, _ := json.Marshal(sameStepReport.Result)
+	if strings.Contains(string(resJSON), "path-scoped-secret") {
+		t.Fatalf("Result JSON leaked extracted cookie secret: %s", string(resJSON))
+	}
+}

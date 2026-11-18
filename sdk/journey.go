@@ -621,6 +621,7 @@ func (j *Journey) runStep(
 	}
 	setCookies := resp.HeaderValues("Set-Cookie")
 	jar.storeResponseCookiesAt(effectiveURL, setCookies, now)
+	var stepJar *CookieJar
 
 	// Decode JSON once lazily if assertions or extractors need it.
 	var jsonParsed bool
@@ -749,10 +750,15 @@ func (j *Journey) runStep(
 			if !ok && effectiveURL != resolvedURL {
 				val, ok = jar.getAt(resolvedURL, ex.source, now)
 			}
-			if !ok {
+			if !ok && len(setCookies) > 0 {
 				// Also check cookies parsed directly from this step's Set-Cookie
 				// headers in case Path scopes the cookie to a subsequent URL.
-				val, ok = findAcceptedCookieInJar(jar, ex.source)
+				if stepJar == nil {
+					stepJar = NewCookieJar()
+					stepJar.nowFn = jar.nowFn
+					stepJar.storeResponseCookiesAt(effectiveURL, setCookies, now)
+				}
+				val, ok = findAcceptedCookieInJar(stepJar, ex.source, isHTTPSURL(effectiveURL))
 			}
 			if !ok {
 				msg := fmt.Sprintf("extractor %q: missing cookie %q", ex.varName, ex.source)
@@ -796,13 +802,22 @@ func (j *Journey) runStep(
 	return outcome, resp, "", ""
 }
 
-func findAcceptedCookieInJar(jar *CookieJar, name string) (string, bool) {
+func isHTTPSURL(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(parsed.Scheme), "https")
+}
+
+func findAcceptedCookieInJar(jar *CookieJar, name string, isHTTPS bool) (string, bool) {
 	if jar == nil {
 		return "", false
 	}
 	for i := len(jar.cookies) - 1; i >= 0; i-- {
-		if jar.cookies[i].Name == name {
-			return jar.cookies[i].Value, true
+		c := jar.cookies[i]
+		if c.Name == name && (!c.Secure || isHTTPS) {
+			return c.Value, true
 		}
 	}
 	return "", false

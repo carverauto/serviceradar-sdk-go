@@ -1,12 +1,16 @@
 package sdk
 
 import (
+	"errors"
+	"math"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+const maxCookieDurationSecs = math.MaxInt64 / int64(time.Second)
 
 // Cookie represents one RFC 6265 cookie stored in an ephemeral CookieJar.
 // Secret values are redacted from String/GoString formatting.
@@ -173,6 +177,9 @@ func (j *CookieJar) storeOneAt(reqHost, reqPath, header string, now time.Time) {
 		if maxAgeSecs <= 0 {
 			cookie.ExpiresAt = time.Unix(0, 0).UTC()
 		} else {
+			if maxAgeSecs > maxCookieDurationSecs {
+				maxAgeSecs = maxCookieDurationSecs
+			}
 			cookie.ExpiresAt = now.Add(time.Duration(maxAgeSecs) * time.Second)
 		}
 	} else if hasExpires {
@@ -382,7 +389,39 @@ func parseCookieMaxAge(raw string) (int64, error) {
 	if raw == "" {
 		return 0, strconv.ErrSyntax
 	}
-	return strconv.ParseInt(raw, 10, 64)
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		if errors.Is(err, strconv.ErrRange) && isSignedDigits(raw) {
+			if strings.HasPrefix(raw, "-") {
+				return 0, nil
+			}
+			return maxCookieDurationSecs, nil
+		}
+		return 0, err
+	}
+	if parsed > maxCookieDurationSecs {
+		return maxCookieDurationSecs, nil
+	}
+	return parsed, nil
+}
+
+func isSignedDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	start := 0
+	if s[0] == '+' || s[0] == '-' {
+		start = 1
+	}
+	if start >= len(s) {
+		return false
+	}
+	for i := start; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseCookieExpires parses RFC 1123, RFC 850, and ANSI C asctime HTTP dates
