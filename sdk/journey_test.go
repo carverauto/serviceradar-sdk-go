@@ -679,3 +679,85 @@ func TestJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
 		t.Fatalf("resolveJSONPath(\"/\") = (%v, %v), want (\"empty-key-val\", true)", gotEmptyKey, ok)
 	}
 }
+
+func TestJourneyExpectJSONFieldRootObjectAndNestedArrays(t *testing.T) {
+	expectedRoot := map[string]any{
+		"status": "ready",
+		"nested": map[string]any{
+			"count": 2,
+			"flags": []any{true, false, nil},
+		},
+		"arr": []any{"alpha", map[string]any{"k": "v"}},
+	}
+
+	j := NewJourney("root-object-and-array")
+	j.Step("root-match", "GET", "https://app.example.com/health").
+		ExpectStatus(200).
+		ExpectJSONField("", expectedRoot).
+		ExpectJSONField("/nested", map[string]any{
+			"count": 2,
+			"flags": []any{true, false, nil},
+		}).
+		ExpectJSONField("/arr", []any{"alpha", map[string]any{"k": "v"}})
+
+	var report *JourneyReport
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, _ HTTPRequest) (*HTTPResponse, error) {
+			return &HTTPResponse{
+				Status: 200,
+				Body:   []byte(`{"status":"ready","nested":{"count":2,"flags":[true,false,null]},"arr":["alpha",{"k":"v"}]}`),
+			}, nil
+		},
+	}, func() error {
+		var execErr error
+		report, execErr = j.Execute(context.Background())
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+	if report.Status != StatusOK {
+		t.Fatalf("status = %s, want OK (summary=%s)", report.Status, report.Result.Summary)
+	}
+
+	// Extra key in actual object or mismatched array order must fail CRITICAL.
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "extra_key",
+			body: `{"status":"ready","nested":{"count":2,"flags":[true,false,null],"extra":1},"arr":["alpha",{"k":"v"}]}`,
+		},
+		{
+			name: "array_order_mismatch",
+			body: `{"status":"ready","nested":{"count":2,"flags":[false,true,null]},"arr":["alpha",{"k":"v"}]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			badJourney := NewJourney("bad-" + tc.name)
+			badJourney.Step("root-check", "GET", "https://app.example.com/health").
+				ExpectStatus(200).
+				ExpectJSONField("", expectedRoot)
+
+			var badReport *JourneyReport
+			_, err := RunLocalHost(LocalHostOptions{
+				ConfigJSON: []byte(`{}`),
+				HTTPHandler: func(_ context.Context, _ HTTPRequest) (*HTTPResponse, error) {
+					return &HTTPResponse{Status: 200, Body: []byte(tc.body)}, nil
+				},
+			}, func() error {
+				var execErr error
+				badReport, execErr = badJourney.Execute(context.Background())
+				return execErr
+			})
+			if err != nil {
+				t.Fatalf("RunLocalHost(%s): %v", tc.name, err)
+			}
+			if badReport.Status != StatusCritical {
+				t.Fatalf("%s status = %s, want CRITICAL", tc.name, badReport.Status)
+			}
+		})
+	}
+}
