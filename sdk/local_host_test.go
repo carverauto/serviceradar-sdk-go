@@ -165,8 +165,8 @@ func TestRunLocalHostEnvelopeTraceTLSAndFollowRedirects(t *testing.T) {
 					ALPN:              "h2",
 					LeafSubjectCN:     "sso.example.com",
 					LeafIssuerCN:      "Test CA",
-					LeafNotAfterUnix:  1790553600,
-					LeafDaysRemaining: 0,
+					LeafNotAfterUnix:  Int64(1790553600),
+					LeafDaysRemaining: Int(0),
 				},
 			}, nil
 		},
@@ -189,7 +189,7 @@ func TestRunLocalHostEnvelopeTraceTLSAndFollowRedirects(t *testing.T) {
 	if resp == nil || resp.Trace == nil || resp.TLS == nil {
 		t.Fatalf("expected Trace and TLS in response, got %#v", resp)
 	}
-	if len(resp.SetCookies) != 2 || resp.TLS.LeafDaysRemaining != 0 || resp.Trace.TotalDurationNS != 10500 {
+	if len(resp.SetCookies) != 2 || resp.TLS.LeafDaysRemaining == nil || *resp.TLS.LeafDaysRemaining != 0 || resp.Trace.TotalDurationNS != 10500 {
 		t.Fatalf("unexpected envelope fields: %#v", resp)
 	}
 }

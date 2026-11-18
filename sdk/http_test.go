@@ -69,8 +69,17 @@ func TestDecodeEnvelopeHTTPResponse(t *testing.T) {
 	if resp.Trace == nil || !resp.Trace.ConnectionReused || resp.Trace.RedirectCount != 1 || len(resp.Trace.Hops) != 2 {
 		t.Fatalf("Trace = %#v", resp.Trace)
 	}
-	if resp.TLS == nil || resp.TLS.Version != "TLS1.3" || resp.TLS.LeafDaysRemaining != 0 || resp.TLS.LeafNotAfterUnix != 1790553600 {
+	if resp.TLS == nil || resp.TLS.Version != "TLS1.3" || resp.TLS.LeafDaysRemaining == nil || *resp.TLS.LeafDaysRemaining != 0 || resp.TLS.LeafNotAfterUnix == nil || *resp.TLS.LeafNotAfterUnix != 1790553600 {
 		t.Fatalf("TLS = %#v", resp.TLS)
+	}
+
+	noLeafPayload := []byte(`{"status":200,"body_base64":"","tls":{"version":"TLS1.3","cipher_suite":"TLS_AES_128_GCM_SHA256"}}`)
+	noLeafResp, err := decodeEnvelopeHTTPResponse(noLeafPayload, time.Millisecond)
+	if err != nil {
+		t.Fatalf("decodeEnvelopeHTTPResponse(noLeaf) error: %v", err)
+	}
+	if noLeafResp.TLS == nil || noLeafResp.TLS.Version != "TLS1.3" || noLeafResp.TLS.LeafNotAfterUnix != nil || noLeafResp.TLS.LeafDaysRemaining != nil {
+		t.Fatalf("TLS without leaf cert should have nil expiry fields, got %#v", noLeafResp.TLS)
 	}
 }
 

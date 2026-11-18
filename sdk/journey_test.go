@@ -57,7 +57,7 @@ type journeyConformanceStep struct {
 	FollowRedirects       *bool                      `json:"follow_redirects"`
 	ExpectStatus          []int                      `json:"expect_status"`
 	ExpectHeader          *nameValueConformance      `json:"expect_header"`
-	ExpectBodyContains    string                     `json:"expect_body_contains"`
+	ExpectBodyContains    *string                    `json:"expect_body_contains"`
 	ExpectJSONField       *pointerValueConformance   `json:"expect_json_field"`
 	ExpectMaxDurationMS   *thresholdFloatConformance `json:"expect_max_duration_ms"`
 	ExpectMinCertDays     *thresholdIntConformance   `json:"expect_min_cert_days"`
@@ -107,14 +107,15 @@ type journeyMockResponse struct {
 }
 
 type journeyConformanceExpect struct {
-	Status              string   `json:"status"`
-	HTTPCalls           int      `json:"http_calls"`
-	StepsCompleted      int      `json:"steps_completed"`
-	StepStatuses        []string `json:"step_statuses"`
-	AlertHint           bool     `json:"alert_hint"`
-	JourneyAvailable    float64  `json:"journey_available"`
-	ForbiddenSubstrings []string `json:"forbidden_substrings"`
-	ExpectedMetricNames []string `json:"expected_metric_names"`
+	Status               string   `json:"status"`
+	HTTPCalls            int      `json:"http_calls"`
+	StepsCompleted       int      `json:"steps_completed"`
+	StepStatuses         []string `json:"step_statuses"`
+	AlertHint            bool     `json:"alert_hint"`
+	JourneyAvailable     float64  `json:"journey_available"`
+	ForbiddenSubstrings  []string `json:"forbidden_substrings"`
+	ExpectedMetricNames  []string `json:"expected_metric_names"`
+	ForbiddenMetricNames []string `json:"forbidden_metric_names"`
 }
 
 func TestJourneyConformanceVectors(t *testing.T) {
@@ -166,7 +167,7 @@ func TestJourneyConformanceVectors(t *testing.T) {
 			if resp.Status != 302 || len(resp.SetCookies) != 2 {
 				t.Fatalf("unexpected decoded response: %#v", resp)
 			}
-			if resp.Trace == nil || len(resp.Trace.Hops) != 1 || resp.TLS == nil || resp.TLS.LeafDaysRemaining != 0 {
+			if resp.Trace == nil || len(resp.Trace.Hops) != 1 || resp.TLS == nil || resp.TLS.LeafDaysRemaining == nil || *resp.TLS.LeafDaysRemaining != 0 {
 				t.Fatalf("unexpected trace/tls: trace=%#v tls=%#v", resp.Trace, resp.TLS)
 			}
 		})
@@ -208,8 +209,8 @@ func runJourneyConformanceScenario(t *testing.T, scen journeyConformanceScen, no
 		if s.ExpectHeader != nil {
 			step.ExpectHeader(s.ExpectHeader.Name, s.ExpectHeader.Value)
 		}
-		if s.ExpectBodyContains != "" {
-			step.ExpectBodyContains(s.ExpectBodyContains)
+		if s.ExpectBodyContains != nil {
+			step.ExpectBodyContains(*s.ExpectBodyContains)
 		}
 		if s.ExpectJSONField != nil {
 			step.ExpectJSONField(s.ExpectJSONField.Pointer, s.ExpectJSONField.Value)
@@ -339,6 +340,11 @@ func runJourneyConformanceScenario(t *testing.T, scen journeyConformanceScen, no
 	for _, wantName := range scen.Expected.ExpectedMetricNames {
 		if _, ok := seenMetrics[wantName]; !ok {
 			t.Fatalf("missing expected metric %q in %#v", wantName, seenMetrics)
+		}
+	}
+	for _, forbidName := range scen.Expected.ForbiddenMetricNames {
+		if _, ok := seenMetrics[forbidName]; ok {
+			t.Fatalf("unexpected forbidden metric %q in %#v", forbidName, seenMetrics)
 		}
 	}
 	if seenMetrics["synthetic.journey.available"] != scen.Expected.JourneyAvailable {
@@ -572,5 +578,104 @@ func TestJourneyExtractCookieCrossDomainFailsAndSameStepPathFallbackSucceeds(t *
 	resJSON, _ := json.Marshal(sameStepReport.Result)
 	if strings.Contains(string(resJSON), "path-scoped-secret") {
 		t.Fatalf("Result JSON leaked extracted cookie secret: %s", string(resJSON))
+	}
+}
+
+func TestJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
+	// G2: TLS metadata without PeerCertificates (omitted LeafNotAfterUnix/LeafDaysRemaining)
+	// must leave TLSCertDays == nil and NOT trigger false 0-day CRITICAL.
+	// G1/G4: ExpectBodyContains("") succeeds and RFC 6901 "/" traverses the "" key.
+	j := NewJourney("adversarial-go-checks")
+	j.Step("check", "GET", "https://app.example.com/edge").
+		ExpectStatus(200).
+		ExpectBodyContains("").
+		ExpectJSONField("/", "empty-key-val").
+		ExtractJSONField("/", "empty_val").
+		ExpectMinCertDays(30, 7)
+
+	var report *JourneyReport
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, _ HTTPRequest) (*HTTPResponse, error) {
+			return &HTTPResponse{
+				Status: 200,
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+				},
+				Body: []byte(`{"":"empty-key-val","a":"other"}`),
+				TLS: &HTTPTLSInfo{
+					Version:     "TLS1.3",
+					CipherSuite: "TLS_AES_128_GCM_SHA256",
+					ALPN:        "h2",
+				},
+			}, nil
+		},
+	}, func() error {
+		var execErr error
+		report, execErr = j.Execute(context.Background())
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+	if report.Status != StatusOK {
+		t.Fatalf("status = %s, want OK (summary=%s)", report.Status, report.Result.Summary)
+	}
+	if report.Steps[0].TLSCertDays != nil {
+		t.Fatalf("TLSCertDays = %d, want nil", *report.Steps[0].TLSCertDays)
+	}
+	for _, m := range report.MetricBatch.Metrics {
+		if m.Name == "synthetic.step.tls_cert_days_remaining" {
+			t.Fatalf("unexpected metric %s emitted without leaf cert", m.Name)
+		}
+	}
+
+	// Verify 0 days remaining STILL triggers CRITICAL when LeafDaysRemaining is explicitly 0.
+	zeroJourney := NewJourney("zero-day-cert")
+	zeroJourney.Step("expiring", "GET", "https://app.example.com/expiring").
+		ExpectStatus(200).
+		ExpectMinCertDays(30, 7)
+
+	var zeroReport *JourneyReport
+	_, err = RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, _ HTTPRequest) (*HTTPResponse, error) {
+			return &HTTPResponse{
+				Status: 200,
+				Body:   []byte("ok"),
+				TLS: &HTTPTLSInfo{
+					Version:           "TLS1.3",
+					LeafNotAfterUnix:  Int64(1790553600),
+					LeafDaysRemaining: Int(0),
+				},
+			}, nil
+		},
+	}, func() error {
+		var execErr error
+		zeroReport, execErr = zeroJourney.Execute(context.Background())
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost(zero): %v", err)
+	}
+	if zeroReport.Status != StatusCritical {
+		t.Fatalf("zero-day status = %s, want CRITICAL (summary=%s)", zeroReport.Status, zeroReport.Result.Summary)
+	}
+	if zeroReport.Steps[0].TLSCertDays == nil || *zeroReport.Steps[0].TLSCertDays != 0 {
+		t.Fatalf("zero-day TLSCertDays = %v, want 0", zeroReport.Steps[0].TLSCertDays)
+	}
+
+	// Verify RFC 6901 "" returns root document while "/" resolves "" key.
+	root := map[string]any{"": "empty-key-val", "a": "other"}
+	gotRoot, ok := resolveJSONPath(root, "")
+	if !ok {
+		t.Fatal("resolveJSONPath(\"\") failed")
+	}
+	if _, isMap := gotRoot.(map[string]any); !isMap {
+		t.Fatalf("resolveJSONPath(\"\") = %T, want root map", gotRoot)
+	}
+	gotEmptyKey, ok := resolveJSONPath(root, "/")
+	if !ok || gotEmptyKey != "empty-key-val" {
+		t.Fatalf("resolveJSONPath(\"/\") = (%v, %v), want (\"empty-key-val\", true)", gotEmptyKey, ok)
 	}
 }
