@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"encoding/base64"
 	"testing"
 	"time"
@@ -169,5 +170,54 @@ func TestHTTPResponseRetryAfter(t *testing.T) {
 				t.Fatalf("retryAfterAt = (%s, %v), want (%s, %v)", got, ok, tc.want, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestDecodeStatusBodyHTTPResponseCopiesPayload(t *testing.T) {
+	raw := []byte("200\nsecret-first-body")
+	resp, ok, err := decodeStatusBodyHTTPResponse(raw, time.Millisecond)
+	if err != nil || !ok {
+		t.Fatalf("decodeStatusBodyHTTPResponse() = (%v, %v), want ok", ok, err)
+	}
+	copy(raw, bytes.Repeat([]byte{'X'}, len(raw)))
+	if string(resp.Body) != "secret-first-body" {
+		t.Fatalf("resp.Body aliased caller buffer: got %q, want %q", string(resp.Body), "secret-first-body")
+	}
+}
+
+func TestHTTPClientScratchBufferReuseAndClear(t *testing.T) {
+	client := &HTTPClient{MaxResponseBytes: 1024}
+
+	buf1 := client.acquireResponseBuffer(1024)
+	if len(buf1) != 1024 {
+		t.Fatalf("len(buf1) = %d, want 1024", len(buf1))
+	}
+	copy(buf1, "sensitive-response-payload")
+	client.releaseResponseBuffer(buf1, 26)
+
+	buf2 := client.acquireResponseBuffer(1024)
+	if &buf1[0] != &buf2[0] {
+		t.Fatal("expected acquireResponseBuffer to reuse released scratch buffer")
+	}
+	for i := 0; i < 26; i++ {
+		if buf2[i] != 0 {
+			t.Fatalf("released scratch buffer not cleared at index %d: %d", i, buf2[i])
+		}
+	}
+	client.releaseResponseBuffer(buf2, 0)
+
+	bufSmaller := client.acquireResponseBuffer(256)
+	if len(bufSmaller) != 256 || &bufSmaller[0] != &buf2[0] {
+		t.Fatal("expected smaller acquisition to slice existing scratch buffer")
+	}
+	client.releaseResponseBuffer(bufSmaller, 0)
+
+	bufLarger := client.acquireResponseBuffer(2048)
+	if len(bufLarger) != 2048 || &bufLarger[0] == &bufSmaller[0] {
+		t.Fatal("expected larger acquisition to allocate larger buffer")
+	}
+	client.releaseResponseBuffer(bufLarger, 0)
+	if cap(client.scratchBuf) != 2048 {
+		t.Fatalf("cap(scratchBuf) = %d, want 2048", cap(client.scratchBuf))
 	}
 }
