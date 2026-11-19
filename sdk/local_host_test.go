@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -126,5 +128,140 @@ func TestRunLocalHostHTTPResponseModes(t *testing.T) {
 	}
 	if statusBody.Status != 429 || statusBody.Headers != nil || string(statusBody.Body) != `{}` {
 		t.Fatalf("status_body response = %#v", statusBody)
+	}
+}
+
+func TestRunLocalHostEnvelopeTraceTLSAndFollowRedirects(t *testing.T) {
+	var seenFollow *bool
+	var resp *HTTPResponse
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, req HTTPRequest) (*HTTPResponse, error) {
+			seenFollow = req.FollowRedirects
+			return &HTTPResponse{
+				Status:     302,
+				Headers:    map[string]string{"Location": "/next"},
+				SetCookies: []string{"sid=abc; Path=/; Secure", "csrf=def; Path=/"},
+				Body:       []byte(`{"ok":true}`),
+				Trace: &HTTPTrace{
+					DNSDurationNS:          1000,
+					ConnectDurationNS:      2000,
+					TLSHandshakeDurationNS: 3000,
+					TTFBDurationNS:         4000,
+					TransferDurationNS:     500,
+					TotalDurationNS:        10500,
+					ConnectionReused:       false,
+					RedirectCount:          0,
+					FinalURL:               "https://sso.example.com/login",
+					Protocol:               "HTTP/2.0",
+					RemoteAddr:             "192.0.2.10:443",
+					Hops: []HTTPHopTrace{
+						{URL: "https://sso.example.com/login", Status: 302, TTFBDurationNS: 4000},
+					},
+				},
+				TLS: &HTTPTLSInfo{
+					Version:           "TLS1.3",
+					CipherSuite:       "TLS_AES_128_GCM_SHA256",
+					ALPN:              "h2",
+					LeafSubjectCN:     "sso.example.com",
+					LeafIssuerCN:      "Test CA",
+					LeafNotAfterUnix:  Int64(1790553600),
+					LeafDaysRemaining: Int(0),
+				},
+			}, nil
+		},
+	}, func() error {
+		var reqErr error
+		resp, reqErr = HTTP.Do(HTTPRequest{
+			Method:          "POST",
+			URL:             "https://sso.example.com/login",
+			ResponseMode:    ResponseModeEnvelope,
+			FollowRedirects: Bool(false),
+		})
+		return reqErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost() error = %v", err)
+	}
+	if seenFollow == nil || *seenFollow {
+		t.Fatalf("FollowRedirects = %v, want false", seenFollow)
+	}
+	if resp == nil || resp.Trace == nil || resp.TLS == nil {
+		t.Fatalf("expected Trace and TLS in response, got %#v", resp)
+	}
+	if len(resp.SetCookies) != 2 || resp.TLS.LeafDaysRemaining == nil || *resp.TLS.LeafDaysRemaining != 0 || resp.Trace.TotalDurationNS != 10500 {
+		t.Fatalf("unexpected envelope fields: %#v", resp)
+	}
+}
+
+func TestHTTPClientReuseAcrossSequentialAndConcurrentRequests(t *testing.T) {
+	client := &HTTPClient{MaxResponseBytes: 4096}
+
+	var statusResponses []*HTTPResponse
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, req HTTPRequest) (*HTTPResponse, error) {
+			if req.URL == "https://example.test/too-large" {
+				return &HTTPResponse{Status: 200, Body: make([]byte, 5000)}, nil
+			}
+			return &HTTPResponse{Status: 200, Body: []byte("body:" + req.URL)}, nil
+		},
+	}, func() error {
+		// 1. Sequential status_body calls must not mutate prior responses when scratch buffer is reused.
+		for i := 0; i < 64; i++ {
+			resp, reqErr := client.Get(fmt.Sprintf("https://example.test/step/%d", i))
+			if reqErr != nil {
+				return reqErr
+			}
+			statusResponses = append(statusResponses, resp)
+		}
+
+		// 2. Host too-large returns HostError(-3) cleanly without breaking subsequent calls.
+		_, largeErr := client.Get("https://example.test/too-large")
+		var hErr HostError
+		if !errors.As(largeErr, &hErr) || hErr.Code != hostErrTooLarge {
+			return fmt.Errorf("expected hostErrTooLarge, got %v", largeErr)
+		}
+
+		// 3. Concurrent envelope calls under -race must remain isolated.
+		var wg sync.WaitGroup
+		errCh := make(chan error, 16)
+		for g := 0; g < 16; g++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				u := fmt.Sprintf("https://example.test/goroutine/%d", idx)
+				resp, gErr := client.DoContext(context.Background(), HTTPRequest{
+					Method:       "GET",
+					URL:          u,
+					ResponseMode: ResponseModeEnvelope,
+				})
+				if gErr != nil {
+					errCh <- gErr
+					return
+				}
+				if string(resp.Body) != "body:"+u {
+					errCh <- fmt.Errorf("got body %q, want %q", string(resp.Body), "body:"+u)
+				}
+			}(g)
+		}
+		wg.Wait()
+		close(errCh)
+		for gErr := range errCh {
+			return gErr
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost() error = %v", err)
+	}
+	if len(statusResponses) != 64 {
+		t.Fatalf("len(statusResponses) = %d, want 64", len(statusResponses))
+	}
+	for i, resp := range statusResponses {
+		want := fmt.Sprintf("body:https://example.test/step/%d", i)
+		if string(resp.Body) != want {
+			t.Fatalf("statusResponses[%d].Body = %q, want %q", i, string(resp.Body), want)
+		}
 	}
 }

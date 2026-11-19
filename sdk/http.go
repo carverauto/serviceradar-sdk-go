@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -34,15 +36,74 @@ type HTTPRequest struct {
 	ResponseMode       string
 	TimeoutMS          int
 	InsecureSkipVerify bool
+	// FollowRedirects controls whether the host follows 3xx redirects.
+	// When nil, the host defaults to following allowed redirects.
+	FollowRedirects *bool
 }
 
-// HTTPResponse contains the proxied response data. Headers is populated only
-// in ResponseModeEnvelope.
+// Bool returns a pointer to v for optional boolean request fields.
+func Bool(v bool) *bool {
+	return &v
+}
+
+// Int returns a pointer to v for optional integer fields.
+func Int(v int) *int {
+	return &v
+}
+
+// Int64 returns a pointer to v for optional int64 fields.
+func Int64(v int64) *int64 {
+	return &v
+}
+
+// HTTPHopTrace records phase timings and metadata for one HTTP request hop.
+type HTTPHopTrace struct {
+	URL                    string `json:"url"`
+	Status                 int    `json:"status"`
+	DNSDurationNS          int64  `json:"dns_duration_ns"`
+	ConnectDurationNS      int64  `json:"connect_duration_ns"`
+	TLSHandshakeDurationNS int64  `json:"tls_handshake_duration_ns"`
+	TTFBDurationNS         int64  `json:"ttfb_duration_ns"`
+	RemoteAddr             string `json:"remote_addr,omitempty"`
+}
+
+// HTTPTrace records host-side net/http/httptrace phase waterfall timings.
+type HTTPTrace struct {
+	DNSDurationNS          int64          `json:"dns_duration_ns"`
+	ConnectDurationNS      int64          `json:"connect_duration_ns"`
+	TLSHandshakeDurationNS int64          `json:"tls_handshake_duration_ns"`
+	TTFBDurationNS         int64          `json:"ttfb_duration_ns"`
+	TransferDurationNS     int64          `json:"transfer_duration_ns"`
+	TotalDurationNS        int64          `json:"total_duration_ns"`
+	ConnectionReused       bool           `json:"connection_reused"`
+	RedirectCount          int            `json:"redirect_count"`
+	FinalURL               string         `json:"final_url"`
+	Protocol               string         `json:"protocol,omitempty"`
+	RemoteAddr             string         `json:"remote_addr,omitempty"`
+	Hops                   []HTTPHopTrace `json:"hops,omitempty"`
+}
+
+// HTTPTLSInfo records negotiated TLS connection posture and leaf certificate metadata.
+type HTTPTLSInfo struct {
+	Version           string `json:"version,omitempty"`
+	CipherSuite       string `json:"cipher_suite,omitempty"`
+	ALPN              string `json:"alpn,omitempty"`
+	LeafSubjectCN     string `json:"leaf_subject_cn,omitempty"`
+	LeafIssuerCN      string `json:"leaf_issuer_cn,omitempty"`
+	LeafNotAfterUnix  *int64 `json:"leaf_not_after_unix,omitempty"`
+	LeafDaysRemaining *int   `json:"leaf_days_remaining,omitempty"`
+}
+
+// HTTPResponse contains the proxied response data. Headers, SetCookies, Trace,
+// and TLS are populated only in ResponseModeEnvelope.
 type HTTPResponse struct {
-	Status   int
-	Headers  map[string]string
-	Body     []byte
-	Duration time.Duration
+	Status     int
+	Headers    map[string]string
+	SetCookies []string
+	Body       []byte
+	Duration   time.Duration
+	Trace      *HTTPTrace
+	TLS        *HTTPTLSInfo
 }
 
 // Header returns the named response header, matched case-insensitively, or ""
@@ -60,6 +121,24 @@ func (r *HTTPResponse) Header(name string) string {
 		}
 	}
 	return ""
+}
+
+// HeaderValues returns all values for the named response header, matched
+// case-insensitively. For Set-Cookie, unjoined SetCookies are returned when
+// populated by the host envelope.
+func (r *HTTPResponse) HeaderValues(name string) []string {
+	if r == nil {
+		return nil
+	}
+	if strings.EqualFold(name, "Set-Cookie") && len(r.SetCookies) > 0 {
+		out := make([]string, len(r.SetCookies))
+		copy(out, r.SetCookies)
+		return out
+	}
+	if value := r.Header(name); value != "" {
+		return []string{value}
+	}
+	return nil
 }
 
 // RetryAfter parses the Retry-After header as delta-seconds or an HTTP-date.
@@ -100,13 +179,17 @@ type httpRequestPayload struct {
 	ResponseMode       string            `json:"response_mode,omitempty"`
 	TimeoutMS          int               `json:"timeout_ms,omitempty"`
 	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
+	FollowRedirects    *bool             `json:"follow_redirects,omitempty"`
 }
 
 type httpResponsePayload struct {
 	Status       int               `json:"status"`
 	Headers      map[string]string `json:"headers,omitempty"`
+	SetCookies   []string          `json:"set_cookies,omitempty"`
 	BodyBase64   string            `json:"body_base64"`
 	BodyEncoding string            `json:"body_encoding,omitempty"`
+	Trace        *HTTPTrace        `json:"trace,omitempty"`
+	TLS          *HTTPTLSInfo      `json:"tls,omitempty"`
 }
 
 // HTTP provides helper methods for host-proxied HTTP requests.
@@ -117,6 +200,45 @@ var HTTP = &HTTPClient{MaxResponseBytes: MaxHTTPResponseBytes}
 // HTTPClient wraps host HTTP request calls.
 type HTTPClient struct {
 	MaxResponseBytes uint32
+
+	bufMu      sync.Mutex
+	scratchBuf []byte
+}
+
+func (c *HTTPClient) acquireResponseBuffer(size uint32) []byte {
+	c.bufMu.Lock()
+	buf := c.scratchBuf
+	if len(buf) == int(size) {
+		c.scratchBuf = nil
+		c.bufMu.Unlock()
+		return buf
+	}
+	if cap(buf) >= int(size) {
+		c.scratchBuf = nil
+		c.bufMu.Unlock()
+		return buf[:size]
+	}
+	c.bufMu.Unlock()
+
+	return make([]byte, size)
+}
+
+func (c *HTTPClient) releaseResponseBuffer(buf []byte, written int32) {
+	if len(buf) == 0 {
+		return
+	}
+	if written > 0 {
+		if int(written) < len(buf) {
+			clear(buf[:written])
+		} else {
+			clear(buf)
+		}
+	}
+	c.bufMu.Lock()
+	if c.scratchBuf == nil || cap(c.scratchBuf) < cap(buf) {
+		c.scratchBuf = buf
+	}
+	c.bufMu.Unlock()
 }
 
 // Do performs an HTTP request via the host proxy.
@@ -126,6 +248,9 @@ func (c *HTTPClient) Do(req HTTPRequest) (*HTTPResponse, error) {
 
 // DoContext performs an HTTP request via the host proxy with a context.
 func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPResponse, error) {
+	if c == nil {
+		return nil, errors.New("http client is nil")
+	}
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -138,6 +263,7 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		ResponseMode:       strings.TrimSpace(req.ResponseMode),
 		TimeoutMS:          req.TimeoutMS,
 		InsecureSkipVerify: req.InsecureSkipVerify,
+		FollowRedirects:    req.FollowRedirects,
 	}
 
 	if payload.Method == "" {
@@ -162,9 +288,14 @@ func (c *HTTPClient) DoContext(ctx context.Context, req HTTPRequest) (*HTTPRespo
 		respBufSize = MaxHTTPResponseBytes
 	}
 
-	respBuf := make([]byte, respBufSize)
+	respBuf := c.acquireResponseBuffer(respBufSize)
+	var res int32
+	defer func() {
+		c.releaseResponseBuffer(respBuf, res)
+	}()
+
 	start := time.Now()
-	res := callHostHTTPRequest(encoded, respBuf)
+	res = callHostHTTPRequest(encoded, respBuf)
 
 	if err := hostErr(res, "http_request"); err != nil {
 		return nil, err
@@ -208,9 +339,13 @@ func decodeStatusBodyHTTPResponse(payload []byte, duration time.Duration) (*HTTP
 		return nil, true, err
 	}
 
+	rawBody := payload[lineEnd+1:]
+	body := make([]byte, len(rawBody))
+	copy(body, rawBody)
+
 	return &HTTPResponse{
 		Status:   status,
-		Body:     payload[lineEnd+1:],
+		Body:     body,
 		Duration: duration,
 	}, true, nil
 }
@@ -228,10 +363,13 @@ func decodeEnvelopeHTTPResponse(payload []byte, duration time.Duration) (*HTTPRe
 	}
 
 	return &HTTPResponse{
-		Status:   responsePayload.Status,
-		Headers:  responsePayload.Headers,
-		Body:     body,
-		Duration: duration,
+		Status:     responsePayload.Status,
+		Headers:    responsePayload.Headers,
+		SetCookies: responsePayload.SetCookies,
+		Body:       body,
+		Duration:   duration,
+		Trace:      responsePayload.Trace,
+		TLS:        responsePayload.TLS,
 	}, nil
 }
 
@@ -288,6 +426,13 @@ func marshalHTTPRequestPayload(payload httpRequestPayload) []byte {
 	}
 	if payload.InsecureSkipVerify {
 		b.WriteString(`,"insecure_skip_verify":true`)
+	}
+	if payload.FollowRedirects != nil {
+		if *payload.FollowRedirects {
+			b.WriteString(`,"follow_redirects":true`)
+		} else {
+			b.WriteString(`,"follow_redirects":false`)
+		}
 	}
 	b.WriteByte('}')
 
