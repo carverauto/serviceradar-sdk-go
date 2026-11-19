@@ -382,10 +382,10 @@ func TestJourneyJSONPathsMissingVarsAndCookieMerge(t *testing.T) {
 		ExpectStatusRange(200, 299).
 		ExpectHeaderContains("Content-Type", "json").
 		ExpectJSONField("/data/items/0/slash~1key", "ok").
-		ExpectJSONField("data.items[0].id", "42").
+		ExpectJSONField("/data/items/0/id", "42").
 		ExpectJSONField("/meta/count", 3).
 		ExtractHeader("X-Request-Id", "req_id").
-		ExtractJSONField("data.items[0].id", "item_id").
+		ExtractJSONField("/data/items/0/id", "item_id").
 		Step("step2", "GET", "https://api.example.com/v1/items/{{item_id}}").
 		WithHeader("X-Correlation", "{{req_id}}").
 		ExpectStatus(200)
@@ -676,6 +676,16 @@ func TestJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
 	gotEmptyKey, ok := resolveJSONPath(root, "/")
 	if !ok || gotEmptyKey != "empty-key-val" {
 		t.Fatalf("resolveJSONPath(\"/\") = (%v, %v), want (\"empty-key-val\", true)", gotEmptyKey, ok)
+	}
+	if got, ok := resolveJSONPath(root, "a"); ok {
+		t.Fatalf("resolveJSONPath(\"a\") = (%v, true), want non-pointer path rejected", got)
+	}
+}
+
+func TestMergeCookieHeadersOverrideReplacesEveryPairWithName(t *testing.T) {
+	got := mergeCookieHeaders("sid=app; other=1; sid=root", "sid=override")
+	if got != "other=1; sid=override" {
+		t.Fatalf("mergeCookieHeaders = %q, want %q", got, "other=1; sid=override")
 	}
 }
 

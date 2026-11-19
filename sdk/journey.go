@@ -1147,19 +1147,16 @@ func mergeCookieHeaders(jarHeader, explicitHeader string) string {
 			}
 			name := strings.TrimSpace(part[:eq])
 			val := strings.TrimSpace(part[eq+1:])
-			replaced := false
 			if override {
-				for i := range pairs {
-					if pairs[i].name == name {
-						pairs[i].value = val
-						replaced = true
-						break
+				kept := pairs[:0]
+				for _, p := range pairs {
+					if p.name != name {
+						kept = append(kept, p)
 					}
 				}
+				pairs = kept
 			}
-			if !replaced {
-				pairs = append(pairs, cookiePair{name: name, value: val})
-			}
+			pairs = append(pairs, cookiePair{name: name, value: val})
 		}
 	}
 
@@ -1183,45 +1180,14 @@ func resolveJSONPath(root any, path string) (any, bool) {
 		return root, true
 	}
 
-	var tokens []string
-	if strings.HasPrefix(path, "/") {
-		rawTokens := strings.Split(path[1:], "/")
-		tokens = make([]string, len(rawTokens))
-		for i, tok := range rawTokens {
-			tok = strings.ReplaceAll(tok, "~1", "/")
-			tok = strings.ReplaceAll(tok, "~0", "~")
-			tokens[i] = tok
-		}
-	} else {
-		for _, part := range strings.Split(path, ".") {
-			if part == "" {
-				continue
-			}
-			for {
-				open := strings.IndexByte(part, '[')
-				if open < 0 {
-					if part != "" {
-						tokens = append(tokens, part)
-					}
-					break
-				}
-				if open > 0 {
-					tokens = append(tokens, part[:open])
-				}
-				closeIdx := strings.IndexByte(part[open+1:], ']')
-				if closeIdx < 0 {
-					tokens = append(tokens, part[open:])
-					break
-				}
-				idxTok := part[open+1 : open+1+closeIdx]
-				tokens = append(tokens, idxTok)
-				part = part[open+1+closeIdx+1:]
-			}
-		}
+	if !strings.HasPrefix(path, "/") {
+		return nil, false
 	}
 
 	curr := root
-	for _, tok := range tokens {
+	for _, tok := range strings.Split(path[1:], "/") {
+		tok = strings.ReplaceAll(tok, "~1", "/")
+		tok = strings.ReplaceAll(tok, "~0", "~")
 		switch node := curr.(type) {
 		case map[string]any:
 			val, ok := node[tok]

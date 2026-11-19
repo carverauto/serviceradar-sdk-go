@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk/internal/publicsuffix"
 )
 
 const maxCookieDurationSecs = math.MaxInt64 / int64(time.Second)
@@ -90,12 +92,13 @@ func (j *CookieJar) storeResponseCookiesAt(rawURL string, setCookies []string, n
 	if reqPath == "" {
 		reqPath = "/"
 	}
+	secureOrigin := strings.EqualFold(parsedURL.Scheme, "https")
 	for _, header := range setCookies {
-		j.storeOneAt(reqHost, reqPath, header, now)
+		j.storeOneAt(reqHost, reqPath, secureOrigin, header, now)
 	}
 }
 
-func (j *CookieJar) storeOneAt(reqHost, reqPath, header string, now time.Time) {
+func (j *CookieJar) storeOneAt(reqHost, reqPath string, secureOrigin bool, header string, now time.Time) {
 	parts := strings.Split(header, ";")
 	if len(parts) == 0 {
 		return
@@ -141,9 +144,16 @@ func (j *CookieJar) storeOneAt(reqHost, reqPath, header string, now time.Time) {
 			if domain == "" {
 				continue
 			}
-			if !domainMatches(reqHost, domain) || (reqHost != domain && !strings.Contains(domain, ".")) {
-				// Reject cross-domain or bare-TLD cookie injection.
+			if !domainMatches(reqHost, domain) {
 				return
+			}
+			if suffix, _ := publicsuffix.PublicSuffix(domain); suffix == domain {
+				if reqHost != domain {
+					return
+				}
+				cookie.Domain = reqHost
+				cookie.HostOnly = true
+				continue
 			}
 			cookie.Domain = domain
 			cookie.HostOnly = false
@@ -154,6 +164,9 @@ func (j *CookieJar) storeOneAt(reqHost, reqPath, header string, now time.Time) {
 				cookie.Path = defaultCookiePath(reqPath)
 			}
 		case "secure":
+			if !secureOrigin {
+				return
+			}
 			cookie.Secure = true
 		case "httponly":
 			cookie.HTTPOnly = true
@@ -424,140 +437,147 @@ func isSignedDigits(s string) bool {
 	return true
 }
 
-// parseCookieExpires parses RFC 1123, RFC 850, and ANSI C asctime HTTP dates
-// without pulling regexp into TinyGo plugins.
+// parseCookieExpires implements the RFC 6265 section 5.1.1 cookie-date
+// algorithm without pulling regexp into TinyGo plugins.
 func parseCookieExpires(value string) (time.Time, bool) {
-	fields := strings.Fields(strings.TrimSpace(value))
-	var weekday, dayStr, monthStr, clockStr string
-	var year int
-	var ok bool
+	var foundTime, foundDay, foundMonth, foundYear bool
+	var hour, minute, second, day, year int
+	var month time.Month
 
-	switch len(fields) {
-	case 6:
-		if fields[5] != "GMT" || !strings.HasSuffix(fields[0], ",") {
-			return time.Time{}, false
+	for _, token := range strings.FieldsFunc(value, isCookieDateDelimiter) {
+		if !foundTime {
+			if h, m, s, ok := parseCookieTime(token); ok {
+				foundTime = true
+				hour, minute, second = h, m, s
+				continue
+			}
 		}
-		weekday = strings.TrimSuffix(fields[0], ",")
-		dayStr = fields[1]
-		monthStr = fields[2]
-		year, ok = parsePositiveInt(fields[3])
-		if !ok {
-			return time.Time{}, false
+		if !foundDay {
+			if v, ok := leadingDigits(token, 1, 2); ok {
+				foundDay = true
+				day = v
+				continue
+			}
 		}
-		clockStr = fields[4]
-	case 4:
-		if fields[3] != "GMT" || !strings.HasSuffix(fields[0], ",") {
-			return time.Time{}, false
+		if !foundMonth {
+			if m, ok := cookieMonth(token); ok {
+				foundMonth = true
+				month = m
+				continue
+			}
 		}
-		weekday = strings.TrimSuffix(fields[0], ",")
-		dateParts := strings.Split(fields[1], "-")
-		if len(dateParts) != 3 || len(dateParts[2]) != 2 {
-			return time.Time{}, false
+		if !foundYear {
+			if v, ok := leadingDigits(token, 2, 4); ok {
+				foundYear = true
+				year = v
+				continue
+			}
 		}
-		dayStr = dateParts[0]
-		monthStr = dateParts[1]
-		shortYear, parsedOK := parsePositiveInt(dateParts[2])
-		if !parsedOK {
-			return time.Time{}, false
-		}
-		if shortYear >= 69 {
-			year = 1900 + shortYear
-		} else {
-			year = 2000 + shortYear
-		}
-		clockStr = fields[2]
-	case 5:
-		weekday = fields[0]
-		monthStr = fields[1]
-		dayStr = fields[2]
-		clockStr = fields[3]
-		year, ok = parsePositiveInt(fields[4])
-		if !ok {
-			return time.Time{}, false
-		}
-	default:
-		return time.Time{}, false
 	}
 
-	if !isHTTPWeekday(weekday) || len(dayStr) == 0 || len(dayStr) > 2 {
+	if !foundTime || !foundDay || !foundMonth || !foundYear {
 		return time.Time{}, false
 	}
-	month, ok := httpMonthNumber(monthStr)
-	if !ok {
-		return time.Time{}, false
+	if year >= 70 && year <= 99 {
+		year += 1900
+	} else if year >= 0 && year <= 69 {
+		year += 2000
 	}
-	day, err := strconv.Atoi(dayStr)
-	if err != nil || day < 1 || day > 31 {
-		return time.Time{}, false
-	}
-	clockParts := strings.Split(clockStr, ":")
-	if len(clockParts) != 3 || len(clockParts[0]) != 2 || len(clockParts[1]) != 2 || len(clockParts[2]) != 2 {
-		return time.Time{}, false
-	}
-	hour, errH := strconv.Atoi(clockParts[0])
-	minute, errM := strconv.Atoi(clockParts[1])
-	second, errS := strconv.Atoi(clockParts[2])
-	if errH != nil || errM != nil || errS != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 60 {
+	if day < 1 || day > 31 || year < 1601 || hour > 23 || minute > 59 || second > 59 {
 		return time.Time{}, false
 	}
 	parsed := time.Date(year, month, day, hour, minute, second, 0, time.UTC)
-	if parsed.Year() != year || parsed.Month() != month || parsed.Day() != day {
+	if parsed.Day() != day || parsed.Month() != month {
 		return time.Time{}, false
 	}
 	return parsed, true
 }
 
-func parsePositiveInt(s string) (int, bool) {
-	if s == "" {
-		return 0, false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return 0, false
-		}
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, false
-	}
-	return v, true
-}
-
-func isHTTPWeekday(value string) bool {
-	switch value {
-	case "Mon", "Monday", "Tue", "Tuesday", "Wed", "Wednesday",
-		"Thu", "Thursday", "Fri", "Friday", "Sat", "Saturday", "Sun", "Sunday":
+func isCookieDateDelimiter(r rune) bool {
+	switch {
+	case r == 0x09:
+		return true
+	case r >= 0x20 && r <= 0x2F:
+		return true
+	case r >= 0x3B && r <= 0x40:
+		return true
+	case r >= 0x5B && r <= 0x60:
+		return true
+	case r >= 0x7B && r <= 0x7E:
 		return true
 	default:
 		return false
 	}
 }
 
-func httpMonthNumber(value string) (time.Month, bool) {
-	switch value {
-	case "Jan":
+// leadingDigits matches minDigits*maxDigits DIGIT ( non-digit *OCTET ).
+func leadingDigits(token string, minDigits, maxDigits int) (int, bool) {
+	n := 0
+	for n < len(token) && token[n] >= '0' && token[n] <= '9' {
+		n++
+	}
+	if n < minDigits || n > maxDigits {
+		return 0, false
+	}
+	v, err := strconv.Atoi(token[:n])
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseCookieTime matches 1*2DIGIT ":" 1*2DIGIT ":" 1*2DIGIT ( non-digit *OCTET ).
+func parseCookieTime(token string) (int, int, int, bool) {
+	var parts [3]int
+	rest := token
+	for i := range parts {
+		n := 0
+		for n < len(rest) && rest[n] >= '0' && rest[n] <= '9' {
+			n++
+		}
+		if n < 1 || n > 2 {
+			return 0, 0, 0, false
+		}
+		parts[i], _ = strconv.Atoi(rest[:n])
+		rest = rest[n:]
+		if i < 2 {
+			if rest == "" || rest[0] != ':' {
+				return 0, 0, 0, false
+			}
+			rest = rest[1:]
+		}
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+func cookieMonth(token string) (time.Month, bool) {
+	if len(token) < 3 {
+		return 0, false
+	}
+	switch strings.ToLower(token[:3]) {
+	case "jan":
 		return time.January, true
-	case "Feb":
+	case "feb":
 		return time.February, true
-	case "Mar":
+	case "mar":
 		return time.March, true
-	case "Apr":
+	case "apr":
 		return time.April, true
-	case "May":
+	case "may":
 		return time.May, true
-	case "Jun":
+	case "jun":
 		return time.June, true
-	case "Jul":
+	case "jul":
 		return time.July, true
-	case "Aug":
+	case "aug":
 		return time.August, true
-	case "Sep":
+	case "sep":
 		return time.September, true
-	case "Oct":
+	case "oct":
 		return time.October, true
-	case "Nov":
+	case "nov":
 		return time.November, true
-	case "Dec":
+	case "dec":
 		return time.December, true
 	default:
 		return 0, false

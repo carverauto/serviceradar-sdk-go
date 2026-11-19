@@ -131,3 +131,74 @@ func TestCookieJarDoubleDotAndIPv6Brackets(t *testing.T) {
 		t.Fatalf("ipv6 HeaderValue = %q, want \"v6_host=v1; v6_dom=v2\"", got)
 	}
 }
+
+func TestCookieJarRFC6265CookieDateAlgorithm(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Time
+		ok   bool
+	}{
+		{"Thursday, 01-Jan-69 00:00:00 GMT", time.Date(2069, 1, 1, 0, 0, 0, 0, time.UTC), true},
+		{"Sunday, 06-Nov-94 08:49:37 GMT", time.Date(1994, 11, 6, 8, 49, 37, 0, time.UTC), true},
+		{"thu, 01 jan 1970 00:00:00 gmt", time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), true},
+		{"01-Jan-1970 00:00:00", time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), true},
+		{"Sun Nov  6 08:49:37 1994", time.Date(1994, 11, 6, 8, 49, 37, 0, time.UTC), true},
+		{"Wed, 21 Oct 2026 07:28:60 GMT", time.Time{}, false},
+		{"Wed, 31 Feb 2026 07:28:00 GMT", time.Time{}, false},
+		{"Wed, 21 Oct 1600 07:28:00 GMT", time.Time{}, false},
+		{"Wed, 21 Oct 2026", time.Time{}, false},
+	}
+	for _, tc := range cases {
+		got, ok := parseCookieExpires(tc.in)
+		if ok != tc.ok || !got.Equal(tc.want) {
+			t.Errorf("parseCookieExpires(%q) = (%v, %v), want (%v, %v)", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+
+	now := time.Unix(1790510400, 0).UTC()
+	jar := NewCookieJar()
+	jar.nowFn = func() time.Time { return now }
+	jar.StoreResponseCookies("https://app.example.com/", []string{
+		"keep=1; Path=/; Expires=Thursday, 01-Jan-69 00:00:00 GMT",
+		"gone=1; Path=/",
+	})
+	jar.StoreResponseCookies("https://app.example.com/", []string{
+		"gone=0; Path=/; Expires=thu, 01 jan 1970 00:00:00 gmt",
+	})
+	if got := jar.HeaderValue("https://app.example.com/"); got != "keep=1" {
+		t.Fatalf("HeaderValue = %q, want keep=1", got)
+	}
+}
+
+func TestCookieJarRejectsPublicSuffixDomain(t *testing.T) {
+	jar := NewCookieJar()
+	jar.StoreResponseCookies("https://a.co.uk/", []string{
+		"ps=bad; Domain=co.uk; Path=/",
+		"ok=1; Domain=a.co.uk; Path=/",
+	})
+	if got := jar.HeaderValue("https://b.co.uk/"); got != "" {
+		t.Fatalf("public-suffix cookie leaked to sibling registrable domain: %q", got)
+	}
+	if got := jar.HeaderValue("https://www.a.co.uk/"); got != "ok=1" {
+		t.Fatalf("www.a.co.uk HeaderValue = %q, want ok=1", got)
+	}
+
+	jar.StoreResponseCookies("https://co.uk/", []string{"self=1; Domain=co.uk; Path=/"})
+	if got := jar.HeaderValue("https://co.uk/"); got != "self=1" {
+		t.Fatalf("co.uk HeaderValue = %q, want self=1", got)
+	}
+	if got := jar.HeaderValue("https://a.co.uk/"); got != "ok=1" {
+		t.Fatalf("public-suffix host cookie must stay host-only, got %q", got)
+	}
+}
+
+func TestCookieJarIgnoresSecureCookieFromInsecureOrigin(t *testing.T) {
+	jar := NewCookieJar()
+	jar.StoreResponseCookies("http://app.example.com/login", []string{
+		"sid=attacker; Path=/; Secure",
+		"plain=1; Path=/",
+	})
+	if got := jar.HeaderValue("https://app.example.com/api"); got != "plain=1" {
+		t.Fatalf("HeaderValue = %q, want plain=1", got)
+	}
+}
