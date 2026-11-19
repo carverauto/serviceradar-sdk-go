@@ -18,7 +18,8 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Advisory-feed contract builders and gateway-mediated artifact staging helpers
 - Run overrides for time-bounded plugin state, and a one-call OCSF event emitter
 - Host-proxied unary gRPC calls
-- HTTP response headers (envelope mode) with `Retry-After` parsing
+- HTTP response envelope mode: headers with `Retry-After` parsing, raw `Set-Cookie` values, redirect control, phase timings and TLS metadata
+- Multi-step synthetic HTTP journeys with an ephemeral RFC 6265 cookie jar
 - Typed credential broker grants, including OAuth2 client-credentials injection
 
 ## Install
@@ -87,6 +88,7 @@ func main() {}
 - `examples/http-check`: HTTP latency check with thresholds and events
 - `examples/tcp-check`: TCP connectivity check with optional write/read
 - `examples/udp-check`: UDP send check with bytes-sent metric
+- `examples/http-synthetic-journey`: multi-step login journey with cookie and JSON extraction
 - `examples/widgets-check`: HTTP check demonstrating stat card, table, sparkline, and markdown widgets
 - `examples/sample-northbound`: northbound action plugin (device lookup, interface audit) with no external dependency
 
@@ -441,6 +443,21 @@ if resp.Status == http.StatusTooManyRequests {
 }
 contentType := resp.Header("content-type") // case-insensitive
 ```
+
+Envelope mode also fills `resp.SetCookies` with each raw `Set-Cookie` value
+(`resp.HeaderValues("Set-Cookie")` returns a copy), `resp.Trace` with the
+host's phase timings (DNS, connect, TLS handshake, TTFB, transfer, plus one
+entry per redirect hop), and `resp.TLS` with the negotiated version, cipher,
+ALPN and leaf certificate metadata. Set `FollowRedirects: sdk.Bool(false)` to
+receive a 3xx response as-is; when nil, the host follows allowed redirects.
+
+### Synthetic journeys
+`sdk.NewJourney` runs ordered HTTP steps in envelope mode against one
+ephemeral `sdk.CookieJar`. Each step can assert status, headers, body,
+JSON Pointer fields, duration and certificate days, and extract headers,
+cookies or JSON fields into `{{var}}` placeholders for later steps.
+`Run` returns the Result and emits `synthetic.*` metrics; `Execute` returns a
+`JourneyReport` without emitting. See `examples/http-synthetic-journey`.
 
 ### Unary gRPC
 `sdk.GRPC.Unary` makes one unary call through the host's `grpc_unary` import.
