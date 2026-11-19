@@ -583,15 +583,14 @@ func TestJourneyExtractCookieCrossDomainFailsAndSameStepPathFallbackSucceeds(t *
 
 func TestJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
 	// G2: TLS metadata without PeerCertificates (omitted LeafNotAfterUnix/LeafDaysRemaining)
-	// must leave TLSCertDays == nil and NOT trigger false 0-day CRITICAL.
+	// must leave TLSCertDays == nil and NOT emit a synthetic 0-day metric.
 	// G1/G4: ExpectBodyContains("") succeeds and RFC 6901 "/" traverses the "" key.
 	j := NewJourney("adversarial-go-checks")
 	j.Step("check", "GET", "https://app.example.com/edge").
 		ExpectStatus(200).
 		ExpectBodyContains("").
 		ExpectJSONField("/", "empty-key-val").
-		ExtractJSONField("/", "empty_val").
-		ExpectMinCertDays(30, 7)
+		ExtractJSONField("/", "empty_val")
 
 	var report *JourneyReport
 	_, err := RunLocalHost(LocalHostOptions{
@@ -759,5 +758,49 @@ func TestJourneyExpectJSONFieldRootObjectAndNestedArrays(t *testing.T) {
 				t.Fatalf("%s status = %s, want CRITICAL", tc.name, badReport.Status)
 			}
 		})
+	}
+}
+
+func TestJourneyMinCertDaysFailsClosedWithoutLeafCert(t *testing.T) {
+	j := NewJourney("cert-missing-leaf")
+	j.Step("check", "GET", "https://app.example.com/edge").
+		ExpectStatus(200).
+		ExpectMinCertDays(30, 7)
+
+	var report *JourneyReport
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, _ HTTPRequest) (*HTTPResponse, error) {
+			return &HTTPResponse{
+				Status: 200,
+				Body:   []byte("ok"),
+				TLS: &HTTPTLSInfo{
+					Version:     "TLS1.3",
+					CipherSuite: "TLS_AES_128_GCM_SHA256",
+					ALPN:        "h2",
+				},
+			}, nil
+		},
+	}, func() error {
+		var execErr error
+		report, execErr = j.Execute(context.Background())
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+	if report.Status != StatusCritical {
+		t.Fatalf("status = %s, want CRITICAL (summary=%s)", report.Status, report.Result.Summary)
+	}
+	if !strings.Contains(report.Result.Summary, "TLS certificate expiry unavailable") {
+		t.Fatalf("summary = %q, want missing leaf expiry failure", report.Result.Summary)
+	}
+	if report.Steps[0].TLSCertDays != nil {
+		t.Fatalf("TLSCertDays = %d, want nil", *report.Steps[0].TLSCertDays)
+	}
+	for _, m := range report.MetricBatch.Metrics {
+		if m.Name == "synthetic.step.tls_cert_days_remaining" {
+			t.Fatalf("unexpected metric %s emitted without leaf cert", m.Name)
+		}
 	}
 }
