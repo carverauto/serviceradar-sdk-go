@@ -17,6 +17,7 @@ const (
 	SignalSchemaPayloadKindOCSFEvent           = "ocsf_event"
 	SignalSchemaPayloadKindOTELLog             = "otel_log"
 	SignalSchemaPayloadKindServiceRadarMetrics = "serviceradar_metrics"
+	SignalSchemaPayloadKindExternalTopologyV1  = "external_topology_v1"
 )
 
 // SignalSchemaRef identifies the package-managed schema and display contract

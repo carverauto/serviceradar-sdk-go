@@ -3,10 +3,12 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -263,5 +265,38 @@ func TestHTTPClientReuseAcrossSequentialAndConcurrentRequests(t *testing.T) {
 		if string(resp.Body) != want {
 			t.Fatalf("statusResponses[%d].Body = %q, want %q", i, string(resp.Body), want)
 		}
+	}
+}
+
+func TestRunLocalHostHTTPDoSupportsLargeEnvelopeResponse(t *testing.T) {
+	largeBody := bytes.Repeat([]byte("a"), 5*1024*1024)
+	var resp *HTTPResponse
+
+	_, err := RunLocalHost(LocalHostOptions{
+		ConfigJSON: []byte(`{}`),
+		HTTPHandler: func(_ context.Context, req HTTPRequest) (*HTTPResponse, error) {
+			return &HTTPResponse{
+				Status:  http.StatusOK,
+				Headers: map[string]string{"Content-Type": "application/json"},
+				Body:    largeBody,
+			}, nil
+		},
+	}, func() error {
+		var reqErr error
+		resp, reqErr = HTTP.Do(HTTPRequest{
+			Method:       http.MethodGet,
+			URL:          "https://example.test/topology/snapshot",
+			ResponseMode: ResponseModeEnvelope,
+		})
+		return reqErr
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost() error = %v", err)
+	}
+	if resp == nil || resp.Status != http.StatusOK {
+		t.Fatalf("unexpected response = %#v", resp)
+	}
+	if !bytes.Equal(resp.Body, largeBody) {
+		t.Fatalf("response body len = %d, want %d", len(resp.Body), len(largeBody))
 	}
 }

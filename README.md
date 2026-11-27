@@ -14,6 +14,7 @@ This SDK lets you write ServiceRadar plugin checkers in Go without handling low-
 - Device discovery envelopes for inventory-producing plugins
 - Event emission + alert promotion hints
 - First-class metric telemetry helper for canonical `serviceradar.metric.v1` payloads
+- First-class external topology snapshot telemetry helper (`external_topology_v1`)
 - Signal schema/display contract references for package-managed logs and events
 - Advisory-feed contract builders and gateway-mediated artifact staging helpers
 - Run overrides for time-bounded plugin state, and a one-call OCSF event emitter
@@ -172,6 +173,18 @@ if err != nil {
 TinyGo plugins do not need the full Go protobuf runtime. If you already have
 encoded protobuf bytes from another generator, use
 `NewServiceRadarMetricTelemetryRecord`.
+
+### External topology telemetry
+Plugins that ingest external graph snapshots or shards can emit first-class
+`external_topology_v1` telemetry records with `NewExternalTopologyV1TelemetryRecord`:
+
+```go
+record := sdk.NewExternalTopologyV1TelemetryRecord("topology-snapshot-1", snapshot)
+err := sdk.EmitTelemetry(sdk.TelemetryBatch{
+    Source:  sdk.TelemetrySource{SourceType: "topology-sync", SourceInstance: "primary"},
+    Records: []sdk.TelemetryRecord{record},
+})
+```
 
 ### Signal display contracts
 When a plugin emits OCSF events or OTEL-style logs that are described by a package manifest, attach the package schema/display reference through the SDK:

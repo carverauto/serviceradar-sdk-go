@@ -77,6 +77,20 @@ func NewServiceRadarMetricTelemetryRecord(eventID string, metricBatchProto []byt
 	}
 }
 
+// NewExternalTopologyV1TelemetryRecord wraps a schema_version=1 external topology
+// snapshot or shard for first-class plugin telemetry emission.
+func NewExternalTopologyV1TelemetryRecord(eventID string, snapshot any) TelemetryRecord {
+	now := time.Now().UTC().UnixNano()
+
+	return TelemetryRecord{
+		EventID:              eventID,
+		ObservedTimeUnixNano: now,
+		EventTimeUnixNano:    now,
+		PayloadKind:          SignalSchemaPayloadKindExternalTopologyV1,
+		Payload:              snapshot,
+	}
+}
+
 // AttachSignalSchemaRef stores a flat signal schema reference on a telemetry record.
 func (r *TelemetryRecord) AttachSignalSchemaRef(ref SignalSchemaRef) *TelemetryRecord {
 	if r == nil {

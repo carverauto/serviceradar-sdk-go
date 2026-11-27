@@ -230,3 +230,13 @@ func TestHTTPClientScratchBufferReuseAndClear(t *testing.T) {
 		t.Fatalf("cap(scratchBuf) = %d, want 2048", cap(client.scratchBuf))
 	}
 }
+
+func TestDefaultHTTPClientMaxResponseBytesIs16MiB(t *testing.T) {
+	const want = 16 * 1024 * 1024
+	if MaxHTTPResponseBytes != want {
+		t.Fatalf("MaxHTTPResponseBytes = %d, want %d", MaxHTTPResponseBytes, want)
+	}
+	if HTTP.MaxResponseBytes != want {
+		t.Fatalf("HTTP.MaxResponseBytes = %d, want %d", HTTP.MaxResponseBytes, want)
+	}
+}

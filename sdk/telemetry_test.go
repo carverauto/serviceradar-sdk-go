@@ -99,3 +99,102 @@ func TestMetricTelemetryRecordSerializesBase64ProtobufPayload(t *testing.T) {
 		t.Fatalf("payload = %x, want %x", decodedPayload, protoPayload)
 	}
 }
+
+func TestExternalTopologyV1TelemetryRecordSerializesSnapshot(t *testing.T) {
+	if SignalSchemaPayloadKindExternalTopologyV1 != "external_topology_v1" {
+		t.Fatalf("SignalSchemaPayloadKindExternalTopologyV1 = %q, want external_topology_v1", SignalSchemaPayloadKindExternalTopologyV1)
+	}
+
+	snapshot := map[string]any{
+		"schema_version": 1,
+		"nodes":          []any{map[string]any{"id": "ext.asn.64512"}},
+		"edges":          []any{},
+	}
+	record := NewExternalTopologyV1TelemetryRecord("topology-1", snapshot)
+	if record.ObservedTimeUnixNano <= 0 || record.EventTimeUnixNano <= 0 {
+		t.Fatalf("expected positive timestamps, got observed=%d event=%d", record.ObservedTimeUnixNano, record.EventTimeUnixNano)
+	}
+	if record.ObservedTimeUnixNano != record.EventTimeUnixNano {
+		t.Fatalf("observed=%d != event=%d", record.ObservedTimeUnixNano, record.EventTimeUnixNano)
+	}
+	if record.PayloadKind != SignalSchemaPayloadKindExternalTopologyV1 {
+		t.Fatalf("PayloadKind = %q, want %q", record.PayloadKind, SignalSchemaPayloadKindExternalTopologyV1)
+	}
+	if record.Metadata != nil {
+		t.Fatalf("Metadata = %#v, want nil", record.Metadata)
+	}
+
+	payload, err := (TelemetryBatch{
+		Source:  TelemetrySource{SourceType: "topology-sync", SourceInstance: "primary"},
+		Records: []TelemetryRecord{record},
+	}).Serialize()
+	if err != nil {
+		t.Fatalf("Serialize() error = %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("telemetry payload is invalid JSON: %v", err)
+	}
+
+	records := decoded["records"].([]any)
+	got := records[0].(map[string]any)
+	if got["event_id"] != "topology-1" {
+		t.Fatalf("event_id = %v, want topology-1", got["event_id"])
+	}
+	if got["payload_kind"] != SignalSchemaPayloadKindExternalTopologyV1 {
+		t.Fatalf("payload_kind = %v, want %s", got["payload_kind"], SignalSchemaPayloadKindExternalTopologyV1)
+	}
+	if _, hasMetadata := got["metadata"]; hasMetadata {
+		t.Fatalf("metadata should be omitted when nil, got %#v", got["metadata"])
+	}
+
+	gotPayload := got["payload"].(map[string]any)
+	if gotPayload["schema_version"] != float64(1) {
+		t.Fatalf("payload.schema_version = %v, want 1", gotPayload["schema_version"])
+	}
+	gotNodes := gotPayload["nodes"].([]any)
+	if len(gotNodes) != 1 || gotNodes[0].(map[string]any)["id"] != "ext.asn.64512" {
+		t.Fatalf("payload.nodes = %#v", gotNodes)
+	}
+	gotEdges := gotPayload["edges"].([]any)
+	if len(gotEdges) != 0 {
+		t.Fatalf("payload.edges = %#v, want empty", gotEdges)
+	}
+
+	emptyIDPayload, err := (TelemetryBatch{
+		Records: []TelemetryRecord{NewExternalTopologyV1TelemetryRecord("", snapshot)},
+	}).Serialize()
+	if err != nil {
+		t.Fatalf("Serialize(empty eventID) error = %v", err)
+	}
+	var decodedEmpty map[string]any
+	if err := json.Unmarshal(emptyIDPayload, &decodedEmpty); err != nil {
+		t.Fatalf("empty eventID payload is invalid JSON: %v", err)
+	}
+	gotEmpty := decodedEmpty["records"].([]any)[0].(map[string]any)
+	if _, hasEventID := gotEmpty["event_id"]; hasEventID {
+		t.Fatalf("event_id should be omitted when empty, got %#v", gotEmpty["event_id"])
+	}
+
+	capture, err := RunLocalHost(LocalHostOptions{ConfigJSON: []byte(`{}`)}, func() error {
+		return EmitTelemetry(TelemetryBatch{
+			Source:  TelemetrySource{SourceType: "topology-sync", SourceInstance: "local"},
+			Records: []TelemetryRecord{record},
+		})
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost() error = %v", err)
+	}
+	if len(capture.TelemetryJSON) != 1 {
+		t.Fatalf("len(TelemetryJSON) = %d, want 1", len(capture.TelemetryJSON))
+	}
+	var captured map[string]any
+	if err := json.Unmarshal(capture.TelemetryJSON[0], &captured); err != nil {
+		t.Fatalf("captured telemetry is invalid JSON: %v", err)
+	}
+	capturedRec := captured["records"].([]any)[0].(map[string]any)
+	if capturedRec["payload_kind"] != SignalSchemaPayloadKindExternalTopologyV1 || capturedRec["event_id"] != "topology-1" {
+		t.Fatalf("captured record = %#v", capturedRec)
+	}
+}
